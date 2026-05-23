@@ -29,3 +29,31 @@ def hero(m):
     conn.close()
 
 bot.polling(none_stop=True)
+@bot.callback_query_handler(func=lambda call: call.data.startswith("dng_"))
+def start_dungeon_fight(call):
+    d_name = call.data.split("_")[1]
+    # Создаем кнопки зон удара (БК-стайл)
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("⚔️ Голова", callback_data=f"hit_Голова_{d_name}"),
+        types.InlineKeyboardButton("⚔️ Грудь", callback_data=f"hit_Грудь_{d_name}"),
+        types.InlineKeyboardButton("⚔️ Пояс", callback_data=f"hit_Пояс_{d_name}"),
+        types.InlineKeyboardButton("⚔️ Ноги", callback_data=f"hit_Ноги_{d_name}")
+    )
+    bot.edit_message_text(f"⚔️ Вы вошли в {d_name}. Куда наносим первый удар?", 
+                          call.message.chat.id, call.message.message_id, reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("hit_"))
+def process_hit(call):
+    data = call.data.split("_")
+    zone = data[1]
+    d_name = data[2]
+    
+    # 1. Загружаем статы игрока из БД (нужно будет сделать SELECT)
+    # 2. Вызываем функцию из combat_engine.py
+    # import combat_engine
+    # result, damage = combat_engine.calculate_fight(player_stats, monster_stats, zone, "Голова")
+    
+    bot.edit_message_text(f"💥 Вы ударили в {zone}! Результат: {damage} урона.", 
+                          call.message.chat.id, call.message.message_id)
+    
