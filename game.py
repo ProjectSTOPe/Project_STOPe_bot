@@ -5,7 +5,7 @@ import time
 import requests
 from telebot import types
 
-TOKEN = '8840112637:AAFe2OMBNVdZ9bVCWrgVEsZeZc-9nsnhF4k'
+TOKEN = '8840112637:AAEUt0qUt_h0R63AaWsSN730sLIPHbQ0Zeg'
 bot = telebot.TeleBot(TOKEN)
 MY_WALLET = "UQBpJQIxJSCMMatGblXhEm1832gmW473Zm8oYh5fsUNsSi8M"
 
