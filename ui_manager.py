@@ -24,4 +24,10 @@ def get_main_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add("🌿 Подземелья", "👤 Герой", "💪 Тренировка") # Добавили кнопку
     return markup
+
+def get_shop_menu():
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🗡 Меч (+10 стр) - 500г", callback_data="buy_sword"))
+    markup.add(types.InlineKeyboardButton("🛡 Щит (+10 вит) - 500г", callback_data="buy_shield"))
+    return markup
     
