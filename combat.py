@@ -64,5 +64,19 @@ def run_pvp(attacker_uid, defender_uid):
     if (str_atk + random.randint(0, 10)) > (str_def + random.randint(0, 10)):
         return True # Победа атакующего
     return False
+
+import time
+
+# Словарь для хранения времени последнего боя: {uid: timestamp}
+last_fight_time = {}
+
+def can_fight(uid):
+    current_time = time.time()
+    last_time = last_fight_time.get(uid, 0)
+    # Кулдаун 10 секунд
+    if current_time - last_time < 10:
+        return False
+    last_fight_time[uid] = current_time
+    return True
     
 
