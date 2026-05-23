@@ -93,6 +93,18 @@ def buy_item(uid, item_name, cost, bonus):
         return True
     conn.close()
     return False
+
+def set_player_class(uid, class_name):
+    conn = get_db()
+    c = conn.cursor()
+    # Уникальные бонусы для классов
+    stats = {"Воин": (20, 5), "Маг": (10, 15)} # (str, vit)
+    str_val, vit_val = stats.get(class_name, (15, 10))
+    
+    c.execute("UPDATE players SET class = ?, str = ?, vit = ? WHERE uid = ?", 
+              (class_name, str_val, vit_val, uid))
+    conn.commit()
+    conn.close()
     
     
     
