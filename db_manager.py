@@ -105,6 +105,13 @@ def set_player_class(uid, class_name):
               (class_name, str_val, vit_val, uid))
     conn.commit()
     conn.close()
+
+def log_action(uid, action):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO logs (uid, action, timestamp) VALUES (?, ?, CURRENT_TIMESTAMP)", (uid, action))
+    conn.commit()
+    conn.close()
     
     
     
