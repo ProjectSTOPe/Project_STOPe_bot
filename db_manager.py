@@ -71,5 +71,14 @@ def get_total_str(uid):
     bonus = c.fetchone()[0] or 0
     conn.close()
     return base_str + bonus
+
+def get_random_opponent(uid):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT uid, name FROM players WHERE uid != ? ORDER BY RANDOM() LIMIT 1", (uid,))
+    opponent = c.fetchone()
+    conn.close()
+    return opponent
+    
     
     
