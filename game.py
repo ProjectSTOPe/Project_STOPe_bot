@@ -1,12 +1,12 @@
 import telebot
+import config  # Наш конфиг файл
 import db_manager
 import ui_manager
 import combat
 from telebot import types
 
-# Инициализация
-TOKEN = '8840112637:AAHKDM7xiUQlw9c4o_z79dTeIqs4jJtWLVc'
-bot = telebot.TeleBot(TOKEN)
+# Инициализация бота с использованием данных из config.py
+bot = telebot.TeleBot(config.TOKEN)
 
 # При запуске проверяем базу
 db_manager.init_db()
@@ -63,8 +63,10 @@ def arena(m):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
 def shop_purchase(call):
     uid = call.message.chat.id
+    success = False
     if call.data == "buy_sword":
         success = db_manager.buy_item(uid, "Меч", 500, 10)
+    
     if success:
         bot.answer_callback_query(call.id, "Куплено!")
     else:
@@ -86,11 +88,9 @@ def handle_dungeon(call):
     bot.edit_message_text(msg, call.message.chat.id, call.message.message_id)
 
 # --- АДМИНИСТРАТИВНАЯ ПАНЕЛЬ ---
-ADMIN_ID = 1206312310
-
 @bot.message_handler(commands=['admin'])
 def admin_panel(m):
-    if m.chat.id != ADMIN_ID: 
+    if m.chat.id != config.ADMIN_ID: 
         bot.send_message(m.chat.id, "❌ Доступ запрещен.")
         return
     count, total_gold = db_manager.get_stats()
@@ -98,7 +98,7 @@ def admin_panel(m):
 
 @bot.message_handler(commands=['give'])
 def give_gold_cmd(m):
-    if m.chat.id != ADMIN_ID: return
+    if m.chat.id != config.ADMIN_ID: return
     try:
         args = m.text.split()
         target_uid = int(args[1])
@@ -110,5 +110,6 @@ def give_gold_cmd(m):
 
 if __name__ == '__main__':
     bot.remove_webhook()
+    print("Бот запущен...")
     bot.polling(none_stop=True)
     
