@@ -13,7 +13,6 @@ db_manager.init_db()
 
 @bot.message_handler(commands=['start'])
 def start(m):
-    # Создаем персонажа, если его нет
     conn = db_manager.get_db()
     c = conn.cursor()
     c.execute("INSERT OR IGNORE INTO players VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
@@ -44,24 +43,8 @@ def train(m):
 def show_dungeons(m):
     bot.send_message(m.chat.id, "Выберите уровень подземелья:", reply_markup=ui_manager.get_dungeon_menu())
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("dng_"))
-def handle_dungeon(call):
-    # Берем уровень данжа из callback_data (например, dng_1 -> 1)
-    dungeon_lvl = int(call.data.split("_")[1])
-    
-    # Запускаем бой через движок combat.py
-    msg = combat.run_battle(call.message.chat.id, dungeon_lvl)
-    
-    # Редактируем сообщение с результатом
-    bot.edit_message_text(msg, call.message.chat.id, call.message.message_id)
-
-if __name__ == '__main__':
-    bot.remove_webhook()
-    bot.polling(none_stop=True)
-
 @bot.message_handler(commands=['get_sword'])
 def get_sword(m):
-    # Пример выдачи меча (+5 к силе)
     db_manager.add_item(m.chat.id, "Стальной меч", 5)
     bot.send_message(m.chat.id, "Ты получил Стальной меч! (+5 к силе)")
 
@@ -71,7 +54,6 @@ def arena(m):
     if not opponent:
         bot.send_message(m.chat.id, "Нет доступных противников.")
         return
-    
     is_win = combat.run_pvp(m.chat.id, opponent[0])
     if is_win:
         bot.send_message(m.chat.id, f"🏆 Ты победил {opponent[1]} на арене!")
@@ -83,7 +65,6 @@ def shop_purchase(call):
     uid = call.message.chat.id
     if call.data == "buy_sword":
         success = db_manager.buy_item(uid, "Меч", 500, 10)
-    
     if success:
         bot.answer_callback_query(call.id, "Куплено!")
     else:
@@ -94,14 +75,40 @@ def choose_class(call):
     class_map = {"class_warrior": "Воин", "class_mage": "Маг"}
     db_manager.set_player_class(call.message.chat.id, class_map[call.data])
     bot.edit_message_text(f"Выбран класс: {class_map[call.data]}", call.message.chat.id, call.message.message_id)
-    
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith("dng_"))
 def handle_dungeon(call):
     if not combat.can_fight(call.message.chat.id):
         bot.answer_callback_query(call.id, "Отдохни, герой! Подожди 10 сек.")
         return
-        
     dungeon_lvl = int(call.data.split("_")[1])
     msg = combat.run_battle(call.message.chat.id, dungeon_lvl)
     bot.edit_message_text(msg, call.message.chat.id, call.message.message_id)
+
+# --- АДМИНИСТРАТИВНАЯ ПАНЕЛЬ ---
+ADMIN_ID = 1206312310
+
+@bot.message_handler(commands=['admin'])
+def admin_panel(m):
+    if m.chat.id != ADMIN_ID: 
+        bot.send_message(m.chat.id, "❌ Доступ запрещен.")
+        return
+    count, total_gold = db_manager.get_stats()
+    bot.send_message(m.chat.id, f"📊 Статистика:\nИгроков: {count}\nВсего золота: {total_gold}")
+
+@bot.message_handler(commands=['give'])
+def give_gold_cmd(m):
+    if m.chat.id != ADMIN_ID: return
+    try:
+        args = m.text.split()
+        target_uid = int(args[1])
+        amount = int(args[2])
+        db_manager.give_gold(target_uid, amount)
+        bot.send_message(m.chat.id, f"✅ Выдано {amount} золота игроку {target_uid}.")
+    except Exception:
+        bot.send_message(m.chat.id, "❌ Ошибка! Используй формат: /give ID количество")
+
+if __name__ == '__main__':
+    bot.remove_webhook()
+    bot.polling(none_stop=True)
     
