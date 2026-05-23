@@ -1,11 +1,11 @@
 import telebot
-import config  # Наш конфиг файл
+import config
 import db_manager
 import ui_manager
 import combat
 from telebot import types
 
-# Инициализация бота с использованием данных из config.py
+# Инициализация бота
 bot = telebot.TeleBot(config.TOKEN)
 
 # При запуске проверяем базу
@@ -108,6 +108,7 @@ def give_gold_cmd(m):
     except Exception:
         bot.send_message(m.chat.id, "❌ Ошибка! Используй формат: /give ID количество")
 
+# Запуск бота (должен быть в самом конце)
 if __name__ == '__main__':
     bot.remove_webhook()
     print("Бот запущен...")
