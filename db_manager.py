@@ -41,5 +41,35 @@ def check_level_up(uid):
             return True
     conn.close()
     return False
+
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
+    # Таблица игроков
+    c.execute("""CREATE TABLE IF NOT EXISTS players 
+                 (uid INTEGER PRIMARY KEY, name TEXT, lvl INTEGER, exp INTEGER, gold INTEGER, 
+                  str INTEGER, dex INTEGER, luk INTEGER, vit INTEGER, class TEXT)""")
+    # Таблица вещей (инвентарь)
+    c.execute("""CREATE TABLE IF NOT EXISTS inventory 
+                 (uid INTEGER, item_name TEXT, str_bonus INTEGER)""")
+    conn.commit()
+    conn.close()
+
+def add_item(uid, item_name, str_bonus):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO inventory VALUES (?, ?, ?)", (uid, item_name, str_bonus))
+    conn.commit()
+    conn.close()
+
+def get_total_str(uid):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT str FROM players WHERE uid=?", (uid,))
+    base_str = c.fetchone()[0]
+    c.execute("SELECT SUM(str_bonus) FROM inventory WHERE uid=?", (uid,))
+    bonus = c.fetchone()[0] or 0
+    conn.close()
+    return base_str + bonus
     
     
