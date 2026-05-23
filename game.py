@@ -77,4 +77,15 @@ def arena(m):
         bot.send_message(m.chat.id, f"🏆 Ты победил {opponent[1]} на арене!")
     else:
         bot.send_message(m.chat.id, f"❌ Ты проиграл {opponent[1]} на арене.")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
+def shop_purchase(call):
+    uid = call.message.chat.id
+    if call.data == "buy_sword":
+        success = db_manager.buy_item(uid, "Меч", 500, 10)
+    
+    if success:
+        bot.answer_callback_query(call.id, "Куплено!")
+    else:
+        bot.answer_callback_query(call.id, "Не хватает золота!")
         
