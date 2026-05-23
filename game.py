@@ -88,4 +88,10 @@ def shop_purchase(call):
         bot.answer_callback_query(call.id, "Куплено!")
     else:
         bot.answer_callback_query(call.id, "Не хватает золота!")
-        
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("class_"))
+def choose_class(call):
+    class_map = {"class_warrior": "Воин", "class_mage": "Маг"}
+    db_manager.set_player_class(call.message.chat.id, class_map[call.data])
+    bot.edit_message_text(f"Выбран класс: {class_map[call.data]}", call.message.chat.id, call.message.message_id)
+    
