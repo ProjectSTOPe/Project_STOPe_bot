@@ -79,6 +79,20 @@ def get_random_opponent(uid):
     opponent = c.fetchone()
     conn.close()
     return opponent
+
+def buy_item(uid, item_name, cost, bonus):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT gold FROM players WHERE uid=?", (uid,))
+    gold = c.fetchone()[0]
+    if gold >= cost:
+        c.execute("UPDATE players SET gold = gold - ? WHERE uid=?", (cost, uid))
+        c.execute("INSERT INTO inventory VALUES (?, ?, ?)", (uid, item_name, bonus))
+        conn.commit()
+        conn.close()
+        return True
+    conn.close()
+    return False
     
     
     
