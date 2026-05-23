@@ -30,4 +30,10 @@ def get_shop_menu():
     markup.add(types.InlineKeyboardButton("🗡 Меч (+10 стр) - 500г", callback_data="buy_sword"))
     markup.add(types.InlineKeyboardButton("🛡 Щит (+10 вит) - 500г", callback_data="buy_shield"))
     return markup
+
+def get_class_menu():
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("⚔️ Воин", callback_data="class_warrior"))
+    markup.add(types.InlineKeyboardButton("🔮 Маг", callback_data="class_mage"))
+    return markup
     
