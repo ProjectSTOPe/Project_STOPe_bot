@@ -95,3 +95,13 @@ def choose_class(call):
     db_manager.set_player_class(call.message.chat.id, class_map[call.data])
     bot.edit_message_text(f"Выбран класс: {class_map[call.data]}", call.message.chat.id, call.message.message_id)
     
+@bot.callback_query_handler(func=lambda call: call.data.startswith("dng_"))
+def handle_dungeon(call):
+    if not combat.can_fight(call.message.chat.id):
+        bot.answer_callback_query(call.id, "Отдохни, герой! Подожди 10 сек.")
+        return
+        
+    dungeon_lvl = int(call.data.split("_")[1])
+    msg = combat.run_battle(call.message.chat.id, dungeon_lvl)
+    bot.edit_message_text(msg, call.message.chat.id, call.message.message_id)
+    
