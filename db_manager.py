@@ -25,4 +25,21 @@ def buy_strength(uid):
         return "✅ Сила увеличена на +2!"
     conn.close()
     return "❌ Недостаточно золота (нужно 100)!"
+
+def check_level_up(uid):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT lvl, exp FROM players WHERE uid=?", (uid,))
+    p = c.fetchone()
+    if p:
+        lvl, exp = p
+        # Формула: 100 опыта на уровень
+        if exp >= lvl * 100:
+            c.execute("UPDATE players SET lvl = lvl + 1, exp = 0 WHERE uid=?", (uid,))
+            conn.commit()
+            conn.close()
+            return True
+    conn.close()
+    return False
+    
     
