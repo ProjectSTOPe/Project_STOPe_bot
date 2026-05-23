@@ -45,4 +45,15 @@ if damage >= monster_hp:
         result += "\n🎉 ПОЗДРАВЛЯЕМ! Ты получил новый УРОВЕНЬ!"
     # ... дальше возврат result
 
+import db_manager
+import random
+
+def run_battle(uid, dungeon_level):
+    # Теперь берем силу через новую функцию с учетом вещей
+    total_str = db_manager.get_total_str(uid)
+    
+    # ... (логика боя та же, но используем total_str вместо простого str_val)
+    damage = total_str + random.randint(1, 15)
+    # ...
+
 
