@@ -56,4 +56,13 @@ def run_battle(uid, dungeon_level):
     damage = total_str + random.randint(1, 15)
     # ...
 
+def run_pvp(attacker_uid, defender_uid):
+    str_atk = db_manager.get_total_str(attacker_uid)
+    str_def = db_manager.get_total_str(defender_uid)
+    
+    # Побеждает тот, у кого больше силы с небольшим рандомом
+    if (str_atk + random.randint(0, 10)) > (str_def + random.randint(0, 10)):
+        return True # Победа атакующего
+    return False
+    
 
