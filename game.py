@@ -58,4 +58,10 @@ def handle_dungeon(call):
 if __name__ == '__main__':
     bot.remove_webhook()
     bot.polling(none_stop=True)
+
+@bot.message_handler(commands=['get_sword'])
+def get_sword(m):
+    # Пример выдачи меча (+5 к силе)
+    db_manager.add_item(m.chat.id, "Стальной меч", 5)
+    bot.send_message(m.chat.id, "Ты получил Стальной меч! (+5 к силе)")
     
