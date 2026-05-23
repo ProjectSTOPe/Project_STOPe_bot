@@ -11,3 +11,18 @@ def init_db():
                   str INTEGER, dex INTEGER, luk INTEGER, vit INTEGER, class TEXT)""")
     conn.commit()
     conn.close()
+    
+def buy_strength(uid):
+    conn = get_db()
+    c = conn.cursor()
+    # Проверяем золото
+    c.execute("SELECT gold, str FROM players WHERE uid=?", (uid,))
+    p = c.fetchone()
+    if p and p[0] >= 100: # Стоимость 100 золота
+        c.execute("UPDATE players SET gold = gold - 100, str = str + 2 WHERE uid=?", (uid,))
+        conn.commit()
+        conn.close()
+        return "✅ Сила увеличена на +2!"
+    conn.close()
+    return "❌ Недостаточно золота (нужно 100)!"
+    
