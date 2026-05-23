@@ -35,6 +35,11 @@ def show_hero(m):
                f"💰 Золото: {p[3]} | 📈 Опыт: {p[2]}")
         bot.send_message(m.chat.id, msg)
 
+@bot.message_handler(func=lambda m: m.text == "💪 Тренировка")
+def train(m):
+    result = db_manager.buy_strength(m.chat.id)
+    bot.send_message(m.chat.id, result)
+
 @bot.message_handler(func=lambda m: m.text == "🌿 Подземелья")
 def show_dungeons(m):
     bot.send_message(m.chat.id, "Выберите уровень подземелья:", reply_markup=ui_manager.get_dungeon_menu())
