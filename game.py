@@ -29,4 +29,4 @@ if __name__ == '__main__':
 
     # Запускаем бота
     print("Бот запускается...")
-    bot.polling(none_stop=True)
+bot.infinity_polling(none_stop=True, interval=0, timeout=20)
