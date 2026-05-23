@@ -19,3 +19,9 @@ def format_hero_stats(p):
             f"🍀 Удача: {p[4]} | ❤️ Здоровье: {p[5]}\n"
             f"💰 Золото: {p[6]}\n"
             f"🛡 Класс: {p[7]}")
+
+def get_main_menu():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add("🌿 Подземелья", "👤 Герой", "💪 Тренировка") # Добавили кнопку
+    return markup
+    
