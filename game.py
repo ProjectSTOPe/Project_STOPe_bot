@@ -1,62 +1,56 @@
-import db_manager.
-import telebot, sqlite3, json, ui_manager, combat_engine
+import telebot
+import db_manager
+import ui_manager
+import combat
 from telebot import types
 
+# Инициализация
 TOKEN = '8840112637:AAHKDM7xiUQlw9c4o_z79dTeIqs4jJtWLVc'
 bot = telebot.TeleBot(TOKEN)
 
-def load_data(name):
-    try:
-        with open(f'{name}.json', 'r', encoding='utf-8') as f: return json.load(f)
-    except: return {}
-
-DUNGEONS = load_data('data_dungeons')
+# При запуске проверяем базу
+db_manager.init_db()
 
 @bot.message_handler(commands=['start'])
 def start(m):
-    conn = sqlite3.connect('stope_v2.db')
+    # Создаем персонажа, если его нет
+    conn = db_manager.get_db()
     c = conn.cursor()
-    c.execute("CREATE TABLE IF NOT EXISTS players (uid INTEGER PRIMARY KEY, name TEXT, level INTEGER, strength INTEGER, dexterity INTEGER, luck INTEGER, vitality INTEGER, gold INTEGER, class TEXT)")
-    c.execute("SELECT uid FROM players WHERE uid=?", (m.chat.id,))
-    if not c.fetchone():
-        c.execute("INSERT INTO players VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (m.chat.id, "Новичок", 1, 10, 10, 10, 10, 100, "Авангард"))
-        conn.commit()
+    c.execute("INSERT OR IGNORE INTO players VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+              (m.chat.id, "Герой", 1, 0, 100, 15, 10, 10, 10, "Воин"))
+    conn.commit()
     conn.close()
     bot.send_message(m.chat.id, "Добро пожаловать в Project STOPe!", reply_markup=ui_manager.get_main_menu())
 
 @bot.message_handler(func=lambda m: m.text == "👤 Герой")
-def hero(m):
-    conn = sqlite3.connect('stope_v2.db')
+def show_hero(m):
+    conn = db_manager.get_db()
     c = conn.cursor()
-    c.execute("SELECT name, level, strength, dexterity, luck, vitality, gold, class FROM players WHERE uid=?", (m.chat.id,))
+    c.execute("SELECT name, lvl, exp, gold, str, dex, luk, vit, class FROM players WHERE uid=?", (m.chat.id,))
     p = c.fetchone()
-    if p:
-        bot.send_message(m.chat.id, ui_manager.format_hero_stats(p), parse_mode="HTML")
     conn.close()
+    if p:
+        msg = (f"👤 {p[0]} (Уровень: {p[1]})\n"
+               f"⚔️ Сила: {p[4]} | 🍀 Удача: {p[6]}\n"
+               f"💰 Золото: {p[3]} | 📈 Опыт: {p[2]}")
+        bot.send_message(m.chat.id, msg)
 
 @bot.message_handler(func=lambda m: m.text == "🌿 Подземелья")
 def show_dungeons(m):
-    bot.send_message(m.chat.id, "Выберите локацию:", reply_markup=ui_manager.get_dungeon_menu(DUNGEONS))
+    bot.send_message(m.chat.id, "Выберите уровень подземелья:", reply_markup=ui_manager.get_dungeon_menu())
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("dng_"))
-def auto_fight(call):
-    conn = sqlite3.connect('stope_v2.db')
-    c = conn.cursor()
-    c.execute("SELECT strength, luck, class FROM players WHERE uid=?", (call.message.chat.id,))
-    row = c.fetchone()
-    conn.close()
+def handle_dungeon(call):
+    # Берем уровень данжа из callback_data (например, dng_1 -> 1)
+    dungeon_lvl = int(call.data.split("_")[1])
     
-    if row:
-        p_stats = {'strength': row[0], 'luck': row[1], 'class': row[2]}
-        dmg, is_crit = combat_engine.calculate_fight(p_stats)
-        msg = f"⚔️ Бой в подземелье!\n💥 Урон: {dmg}" + (" (КРИТ!)" if is_crit else "")
-        bot.edit_message_text(msg, call.message.chat.id, call.message.message_id)
+    # Запускаем бой через движок combat.py
+    msg = combat.run_battle(call.message.chat.id, dungeon_lvl)
+    
+    # Редактируем сообщение с результатом
+    bot.edit_message_text(msg, call.message.chat.id, call.message.message_id)
 
 if __name__ == '__main__':
-    try:
-        print("Попытка запуска...")
-        bot.remove_webhook()
-        bot.polling(none_stop=True, interval=1, timeout=60, long_polling_timeout=60)
-    except Exception as e:
-        print(f"Ошибка при запуске: {e}")
-        
+    bot.remove_webhook()
+    bot.polling(none_stop=True)
+    
