@@ -1,18 +1,20 @@
-import telebot, sqlite3
+import telebot, sqlite3, os
 from telebot import types
 from flask import Flask
 from threading import Thread
-import os
 
 TOKEN = '8840112637:AAHKDM7xiUQlw9c4o_z79dTeIqs4jJtWLVc'
 bot = telebot.TeleBot(TOKEN)
 app = Flask('')
 
+# Принудительно отключаем вебхуки при запуске, чтобы не было конфликтов (ошибка 409)
+bot.remove_webhook()
+
 @app.route('/')
 def home(): return "Bot is alive"
 def run_web(): app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
 
-# Настройки классов
+# Настройки классов (оставил как базу, будем расширять)
 CLASSES = {
     "Ассасин": {"atk": 55, "deff": 10, "passive": "Крит. удар +8%"},
     "Авангард": {"atk": 25, "deff": 35, "passive": "Снижение урона -10%"},
@@ -41,14 +43,15 @@ def start(m):
     user = c.fetchone()
     
     if user and user[0]:
-        bot.send_message(m.chat.id, "⚔️ С возвращением в S-Rank Online!", reply_markup=main_menu())
+        # Исправил название на Project STOPe
+        bot.send_message(m.chat.id, "⚔️ С возвращением в Project STOPe!", reply_markup=main_menu())
     else:
         markup = types.InlineKeyboardMarkup(row_width=1)
         for cls in CLASSES.keys():
             markup.add(types.InlineKeyboardButton(cls, callback_data=f"setcls_{cls}"))
         c.execute("INSERT OR IGNORE INTO players (uid, name) VALUES (?, ?)", (m.chat.id, m.from_user.first_name))
         conn.commit()
-        bot.send_message(m.chat.id, "🌑 Выберите свой путь:", reply_markup=markup)
+        bot.send_message(m.chat.id, "🌑 Добро пожаловать в Project STOPe! Выберите свой путь:", reply_markup=markup)
     conn.close()
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("setcls_"))
@@ -60,7 +63,7 @@ def set_class(call):
     c.execute("UPDATE players SET class=?, atk=?, deff=? WHERE uid=?", (cls_name, stats["atk"], stats["deff"], call.from_user.id))
     conn.commit(); conn.close()
     bot.edit_message_text(f"✅ Выбран класс: {cls_name}\nПассивка: {stats['passive']}", call.message.chat.id, call.message.message_id)
-    bot.send_message(call.message.chat.id, "Добро пожаловать в меню:", reply_markup=main_menu())
+    bot.send_message(call.message.chat.id, "Добро пожаловать в главное меню:", reply_markup=main_menu())
 
 @bot.message_handler(func=lambda m: m.text == "👤 Герой")
 def hero_stats(m):
