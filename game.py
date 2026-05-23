@@ -13,6 +13,14 @@ DUNGEONS = load_data('data_dungeons')
 
 @bot.message_handler(commands=['start'])
 def start(m):
+    conn = sqlite3.connect('stope_v2.db')
+    c = conn.cursor()
+    c.execute("CREATE TABLE IF NOT EXISTS players (uid INTEGER PRIMARY KEY, name TEXT, level INTEGER, strength INTEGER, dexterity INTEGER, luck INTEGER, vitality INTEGER, gold INTEGER, class TEXT)")
+    c.execute("SELECT uid FROM players WHERE uid=?", (m.chat.id,))
+    if not c.fetchone():
+        c.execute("INSERT INTO players VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (m.chat.id, "Новичок", 1, 10, 10, 10, 10, 100, "Авангард"))
+        conn.commit()
+    conn.close()
     bot.send_message(m.chat.id, "Добро пожаловать в Project STOPe!", reply_markup=ui_manager.get_main_menu())
 
 @bot.message_handler(func=lambda m: m.text == "👤 Герой")
@@ -23,8 +31,6 @@ def hero(m):
     p = c.fetchone()
     if p:
         bot.send_message(m.chat.id, ui_manager.format_hero_stats(p), parse_mode="HTML")
-    else:
-        bot.send_message(m.chat.id, "Персонаж не найден.")
     conn.close()
 
 @bot.message_handler(func=lambda m: m.text == "🌿 Подземелья")
@@ -39,17 +45,17 @@ def auto_fight(call):
     row = c.fetchone()
     conn.close()
     
-    if not row:
-        bot.answer_callback_query(call.id, "Создайте персонажа!")
-        return
-
-    p_stats = {'strength': row[0], 'luck': row[1], 'class': row[2]}
-    dmg, is_crit = combat_engine.calculate_fight(p_stats)
-    
-    msg = f"⚔️ Бой завершен!\n💥 Урон: {dmg}" + (" (КРИТ!)" if is_crit else "")
-    bot.edit_message_text(msg, call.message.chat.id, call.message.message_id)
+    if row:
+        p_stats = {'strength': row[0], 'luck': row[1], 'class': row[2]}
+        dmg, is_crit = combat_engine.calculate_fight(p_stats)
+        msg = f"⚔️ Бой в подземелье!\n💥 Урон: {dmg}" + (" (КРИТ!)" if is_crit else "")
+        bot.edit_message_text(msg, call.message.chat.id, call.message.message_id)
 
 if __name__ == '__main__':
-    bot.remove_webhook()
-    bot.polling(none_stop=True, interval=0)
-    
+    try:
+        print("Попытка запуска...")
+        bot.remove_webhook()
+        bot.polling(none_stop=True, interval=1, timeout=60, long_polling_timeout=60)
+    except Exception as e:
+        print(f"Ошибка при запуске: {e}")
+        
