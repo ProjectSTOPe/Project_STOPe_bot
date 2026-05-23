@@ -64,4 +64,17 @@ def get_sword(m):
     # Пример выдачи меча (+5 к силе)
     db_manager.add_item(m.chat.id, "Стальной меч", 5)
     bot.send_message(m.chat.id, "Ты получил Стальной меч! (+5 к силе)")
+
+@bot.message_handler(func=lambda m: m.text == "⚔️ Арена")
+def arena(m):
+    opponent = db_manager.get_random_opponent(m.chat.id)
+    if not opponent:
+        bot.send_message(m.chat.id, "Нет доступных противников.")
+        return
     
+    is_win = combat.run_pvp(m.chat.id, opponent[0])
+    if is_win:
+        bot.send_message(m.chat.id, f"🏆 Ты победил {opponent[1]} на арене!")
+    else:
+        bot.send_message(m.chat.id, f"❌ Ты проиграл {opponent[1]} на арене.")
+        
