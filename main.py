@@ -6,6 +6,7 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+# Токен лучше хранить в переменных окружения, но для теста оставим здесь
 BOT_TOKEN = "8824282617:AAF-4RmuPwJDMudFzzTjaf2koXvvBo1KlP4"
 SAVE_FILE = "game_save.json"
 
@@ -22,83 +23,85 @@ def save_game(data):
 
 user_data = load_game()
 
-# Функция добавления опыта
 def add_xp(user_id, amount):
-    user = user_data.get(str(user_id))
-    if not user: return
-    
+    uid = str(user_id)
+    if uid not in user_data: return
+    user = user_data[uid]
     user["xp"] = user.get("xp", 0) + amount
     if user["xp"] >= 100:
         user["level"] += 1
-        user["xp"] = 0
-        user["hp"] += 5 
+        user["xp"] -= 100
+        user["hp"] += 10
+        user["strength"] += 2
     save_game(user_data)
 
-# ТВОИ СТРЕЛОЧКИ И МЕНЮ
-def get_game_kb():
+# Улучшенное меню
+def get_game_kb(in_combat=False):
+    if in_combat:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⚔️ Атаковать", callback_data="attack"), InlineKeyboardButton(text="🏃 Побег", callback_data="flee")]
+        ])
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⬆️ Вверх", callback_data="move_up"), InlineKeyboardButton(text="⬇️ Вниз", callback_data="move_down")],
-        [InlineKeyboardButton(text="⬅️ Влево", callback_data="move_left"), InlineKeyboardButton(text="➡️ Вправо", callback_data="move_right")],
-        [InlineKeyboardButton(text="🔍 Исследовать", callback_data="explore"), InlineKeyboardButton(text="⚔️ Атака", callback_data="attack")],
-        [InlineKeyboardButton(text="📊 Статус", callback_data="status")]
+        [InlineKeyboardButton(text="⬆️", callback_data="move_up"), InlineKeyboardButton(text="⬇️", callback_data="move_down")],
+        [InlineKeyboardButton(text="⬅️", callback_data="move_left"), InlineKeyboardButton(text="➡️", callback_data="move_right")],
+        [InlineKeyboardButton(text="🎒 Инвентарь", callback_data="inv"), InlineKeyboardButton(text="📊 Статус", callback_data="status")]
     ])
-
-@dp.message(Command("start"))
-async def cmd_start(message: types.Message):
-    user_id = str(message.from_user.id)
-    if user_id not in user_data:
-        user_data[user_id] = {
-            "name": "Raimund", "hp": 20, "strength": 5, "gold": 250, 
-            "level": 1, "xp": 0, "x": 15, "y": 9, "inventory": ["Зелье"], "enemy_hp": 0
-        }
-        save_game(user_data)
-    await message.answer("Добро пожаловать в Project STOPe!", reply_markup=get_game_kb())
 
 @dp.callback_query(F.data.startswith("move_"))
 async def callback_move(callback: types.CallbackQuery):
     user_id = str(callback.from_user.id)
-    direction = callback.data.split("_")[1]
     p = user_data[user_id]
     
+    # Генерация мира
+    locs = ["Лес", "Горы", "Болото", "Руины"]
+    
+    direction = callback.data.split("_")[1]
     if direction == "up": p['y'] -= 1
     elif direction == "down": p['y'] += 1
     elif direction == "left": p['x'] -= 1
     elif direction == "right": p['x'] += 1
     
-    if random.random() < 0.3:
-        p['enemy_hp'] = random.randint(10, 15)
-        await callback.message.edit_text(f"⚠️ Встретил врага! HP: {p['enemy_hp']}", reply_markup=get_game_kb())
+    if random.random() < 0.35:
+        p['enemy_hp'] = random.randint(10 + p['level']*5, 20 + p['level']*5)
+        p['enemy_max'] = p['enemy_hp']
+        await callback.message.edit_text(f"⚠️ Встретил монстра! HP: {p['enemy_hp']}", reply_markup=get_game_kb(in_combat=True))
     else:
-        await callback.message.edit_text(f"Координаты: X={p['x']}, Y={p['y']}", reply_markup=get_game_kb())
+        await callback.message.edit_text(f"Вы исследуете: {random.choice(locs)}\nКоординаты: {p['x']}:{p['y']}", reply_markup=get_game_kb())
     save_game(user_data)
 
 @dp.callback_query(F.data == "attack")
 async def callback_attack(callback: types.CallbackQuery):
     user_id = str(callback.from_user.id)
     p = user_data[user_id]
-    if p.get('enemy_hp', 0) > 0:
-        p['enemy_hp'] -= p['strength']
-        if p['enemy_hp'] <= 0:
-            add_xp(user_id, 30)
-            await callback.answer("Враг побежден! +30 XP")
-            await callback.message.edit_text("Враг повержен!", reply_markup=get_game_kb())
-        else:
-            await callback.answer(f"Удар! Осталось {p['enemy_hp']} HP")
+    
+    damage = random.randint(p['strength']-1, p['strength']+2)
+    p['enemy_hp'] -= damage
+    
+    if p['enemy_hp'] <= 0:
+        gold_drop = random.randint(5, 15)
+        p['gold'] += gold_drop
+        add_xp(user_id, 40)
+        await callback.answer(f"Победа! +{gold_drop} золота")
+        await callback.message.edit_text("Враг повержен! Куда идем дальше?", reply_markup=get_game_kb())
     else:
-        await callback.answer("Врагов нет!")
+        # Ответный удар монстра
+        monster_dmg = random.randint(2, 5)
+        p['hp'] -= monster_dmg
+        await callback.message.edit_text(f"Вы нанесли {damage} урона. Враг ударил вас на {monster_dmg}. У врага {p['enemy_hp']} HP", reply_markup=get_game_kb(in_combat=True))
     save_game(user_data)
+
+@dp.callback_query(F.data == "flee")
+async def callback_flee(callback: types.CallbackQuery):
+    user_data[str(callback.from_user.id)]['enemy_hp'] = 0
+    await callback.message.edit_text("Вы убежали от страха!", reply_markup=get_game_kb())
 
 @dp.callback_query(F.data == "status")
 async def callback_status(callback: types.CallbackQuery):
     p = user_data[str(callback.from_user.id)]
-    status_text = (f"👤 {p['name']} | Ур: {p['level']} | XP: {p['xp']}/100\n"
-                   f"❤️ {p['hp']} | 💰 {p['gold']} | ⚔️ Сила: {p['strength']}\n"
-                   f"📍 Координаты: {p['x']}:{p['y']}")
-    await callback.message.edit_text(status_text, reply_markup=get_game_kb())
+    await callback.message.edit_text(f"👤 {p['name']}\nУр: {p['level']} | XP: {p['xp']}/100\n❤️ {p['hp']} | 💰 {p['gold']} | ⚔️ Сила: {p['strength']}", reply_markup=get_game_kb())
 
 async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    await dp.start_polling(bot, drop_pending_updates=True)
 
 if __name__ == "__main__":
     asyncio.run(main())
