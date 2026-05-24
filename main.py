@@ -166,9 +166,9 @@ def format_item_stats(item):
 # --- КЛАВИАТУРЫ ---
 def get_bottom_kb():
     return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="🗺 Навигация")],
-        [KeyboardButton(text="👤 Герой"), KeyboardButton(text="🎒 Инвентарь")],
-        [KeyboardButton(text="🔮 Призыв")]
+        [KeyboardButton(text="🗺Навигация")],
+        [KeyboardButton(text="👤Герой"), KeyboardButton(text="🎒 Инвентарь")],
+        [KeyboardButton(text="🔮Призыв")]
     ], resize_keyboard=True)
 
 def get_nav_kb():
