@@ -166,9 +166,9 @@ def format_item_stats(item):
 # --- КЛАВИАТУРЫ ---
 def get_bottom_kb():
     return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="🗺Навигация")],
-        [KeyboardButton(text="👤Герой"), KeyboardButton(text="🎒 Инвентарь")],
-        [KeyboardButton(text="🔮Призыв")]
+        [KeyboardButton(text="🗺 Навигация")],
+        [KeyboardButton(text="👤 Герой"), KeyboardButton(text="🎒 Инвентарь")],
+        [KeyboardButton(text="🔮 Призыв")]
     ], resize_keyboard=True)
 
 def get_nav_kb():
@@ -205,7 +205,7 @@ async def cmd_start(message: types.Message):
     if user_id not in user_data or user_data[user_id].get("class") is None:
         user_data[user_id] = {
             "name": message.from_user.first_name, "class": None, "level": 1, "xp": 0,
-            "gold": 500, "crystals": 300, "dust": 0, "hp": 50, "max_hp": 50,
+            "gold": 5000, "crystals": 10000, "dust": 0, "hp": 50, "max_hp": 50,
             "strength": 5, "agility": 5, "intelligence": 5, "defense": 2,
             "x": 10, "y": 10, "enemy_hp": 0, "enemy_max": 0, "enemy_type": "normal",
             "pity_epic": 0, "pity_leg": 0,
@@ -270,6 +270,61 @@ async def menu_gacha(message: types.Message):
         f"⬜ Обычный: ~60%"
     )
     await message.answer(text, reply_markup=get_gacha_kb())
+    
+@dp.message(F.text == "👤 Герой")
+async def menu_hero(message: types.Message):
+    p = user_data.get(str(message.from_user.id))
+    if not p: return
+    stats = get_total_stats(p)
+    
+    text = (
+        f"👤 {p['name']} | 🎖 {p['class']} ({p['level']} ур.)\n"
+        f"Прогресс: {p['xp']}/{p['level']*50} XP\n\n"
+        f"**Статы:**\n"
+        f"⚔️ Атака: {stats['total_atk']} | 🛡 Защита: {stats['total_def']}\n"
+        f"❤️ HP: {p['hp']}/{stats['total_max_hp']}\n\n"
+        f"**Ресурсы:**\n"
+        f"💰 Золото: {p['gold']} | 💎 Кристаллы: {p['crystals']}\n"
+        f"✨ Пыль: {p.get('dust', 0)}"
+    )
+    await message.answer(text)
+
+@dp.message(F.text == "🎒 Инвентарь")
+async def menu_inventory(message: types.Message):
+    user_id = str(message.from_user.id)
+    if user_id not in user_data: return
+    await show_inventory(user_id, message)
+
+async def show_inventory(user_id, message_or_callback):
+    p = user_data.get(user_id)
+    if not p: return
+    
+    text = f"🎒 **Инвентарь** (Пыль: {p.get('dust', 0)})\n\n🛡 **Надето:**\n"
+    for slot in ["weapon", "armor", "jewelry"]:
+        eq = p["equipped"].get(slot)
+        if eq: 
+            text += f"• {slot.capitalize()}: {eq['name']} (+{eq['upgrade']})\n  └ {format_item_stats(eq)}\n"
+        else: text += f"• {slot.capitalize()}: <Пусто>\n"
+        
+    text += "\n📦 **В сумке:**\n"
+    kb = None
+    if not p.get("inventory"):
+        text += "_Пусто._"
+    else:
+        kb_buttons = []
+        for idx, item in enumerate(p["inventory"][:6]):
+            text += f"{idx+1}. {item['name']} (+{item['upgrade']})\n    {format_item_stats(item)}\n"
+            kb_buttons.append([
+                InlineKeyboardButton(text=f"👕 Надеть {idx+1}", callback_data=f"inv_equip_{idx}"),
+                InlineKeyboardButton(text=f"♻️ В пыль {idx+1}", callback_data=f"inv_scrap_{idx}")
+            ])
+        kb_buttons.append([InlineKeyboardButton(text="🔺 Точить Оружие", callback_data="upg_weapon")])
+        kb = InlineKeyboardMarkup(inline_keyboard=kb_buttons)
+        
+    if isinstance(message_or_callback, types.Message):
+        await message_or_callback.answer(text, reply_markup=kb)
+    else:
+        await message_or_callback.message.edit_text(text, reply_markup=kb)
 
 @dp.callback_query(F.data == "back_nav")
 async def callback_back_nav(callback: types.CallbackQuery):
