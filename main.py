@@ -2,10 +2,10 @@ import asyncio
 import json
 import os
 import random
-from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiohttp import web # <--- ДОБАВЛЕНО ДЛЯ RENDER
 
 BOT_TOKEN = "8824282617:AAF-4RmuPwJDMudFzzTjaf2koXvvBo1KlP4"
 SAVE_FILE = "game_save.json"
@@ -129,7 +129,6 @@ def perform_gacha_pull(p):
         else:
             rarity_key = "Common"
             
-    # Сброс счетчиков удачи
     if rarity_key in ["Legendary", "Mythic"]:
         p["pity_leg"] = 0
         p["pity_epic"] = 0
@@ -149,7 +148,7 @@ def perform_gacha_pull(p):
         stats["atk"] = random.randint(0, 3) * mult
         stats["hp"] = random.randint(15, 30) * mult
         stats["def"] = random.randint(3, 8) * mult
-    else: # jewelry
+    else: 
         stats["atk"] = random.randint(2, 6) * mult
         stats["hp"] = random.randint(10, 20) * mult
         stats["def"] = random.randint(1, 4) * mult
@@ -221,12 +220,15 @@ async def cmd_start(message: types.Message):
 @dp.callback_query(F.data.startswith("choose_"))
 async def callback_class_select(callback: types.CallbackQuery):
     user_id = str(callback.from_user.id)
+    p = user_data.get(user_id)
+    if not p:
+        await callback.answer("⏳ Ошибка данных. Напишите /start", show_alert=True)
+        return
+        
     selected_class = callback.data.split("_")[1]
-    p = user_data[user_id]
-    
     p["class"] = selected_class
     if selected_class == "Маг": p["intelligence"] = 15; p["max_hp"] = 60
-    elif selected_class == "Lučnik": p["agility"] = 15; p["max_hp"] = 75
+    elif selected_class == "Лучник": p["agility"] = 15; p["max_hp"] = 75
     elif selected_class == "Танк": p["strength"] = 15; p["max_hp"] = 110; p["defense"] = 6
         
     p["hp"] = p["max_hp"]
@@ -234,6 +236,7 @@ async def callback_class_select(callback: types.CallbackQuery):
     await callback.message.delete()
     await bot.send_message(callback.from_user.id, f"⚔️ Вы выбрали класс: **{selected_class}**!", reply_markup=get_bottom_kb())
     await bot.send_message(callback.from_user.id, "🗺 Панель навигации:", reply_markup=get_nav_kb())
+    await callback.answer()
 
 # --- ОБРАБОТКА КНОПОК МЕНЮ ---
 @dp.message(F.text == "🗺 Навигация")
@@ -267,332 +270,4 @@ async def menu_hero(message: types.Message):
     if not p: return
     stats = get_total_stats(p)
     
-    text = (
-        f"👤 {p['name']} | 🎖 {p['class']} ({p['level']} ур.)\n"
-        f"Прогресс: {p['xp']}/{p['level']*50} XP\n\n"
-        f"**Статы:**\n"
-        f"⚔️ Атака: {stats['total_atk']} | 🛡 Защита: {stats['total_def']}\n"
-        f"❤️ HP: {p['hp']}/{stats['total_max_hp']}\n\n"
-        f"**Ресурсы:**\n"
-        f"💰 Золото: {p['gold']} | 💎 Кристаллы: {p['crystals']}\n"
-        f"✨ Пыль: {p.get('dust', 0)}"
-    )
-    await message.answer(text)
-
-@dp.message(F.text == "🎒 Инвентарь")
-async def menu_inventory(message: types.Message):
-    await show_inventory(str(message.from_user.id), message)
-
-async def show_inventory(user_id, message_or_callback):
-    p = user_data[user_id]
-    text = f"🎒 **Инвентарь** (Пыль: {p.get('dust', 0)})\n\n🛡 **Надето:**\n"
-    for slot in ["weapon", "armor", "jewelry"]:
-        eq = p["equipped"].get(slot)
-        if eq: 
-            text += f"• {slot.capitalize()}: {eq['name']} (+{eq['upgrade']})\n  └ {format_item_stats(eq)}\n"
-        else: text += f"• {slot.capitalize()}: <Пусто>\n"
-        
-    text += "\n📦 **В сумке:**\n"
-    kb = None
-    if not p["inventory"]:
-        text += "_Пусто._"
-    else:
-        kb_buttons = []
-        for idx, item in enumerate(p["inventory"][:6]):
-            text += f"{idx+1}. {item['name']} (+{item['upgrade']})\n    {format_item_stats(item)}\n"
-            kb_buttons.append([
-                InlineKeyboardButton(text=f"👕 Надеть {idx+1}", callback_data=f"inv_equip_{idx}"),
-                InlineKeyboardButton(text=f"♻️ В пыль {idx+1}", callback_data=f"inv_scrap_{idx}")
-            ])
-        kb_buttons.append([InlineKeyboardButton(text="🔺 Точить Оружие", callback_data="upg_weapon")])
-        kb = InlineKeyboardMarkup(inline_keyboard=kb_buttons)
-        
-    if isinstance(message_or_callback, types.Message):
-        await message_or_callback.answer(text, reply_markup=kb)
-    else:
-        await message_or_callback.message.edit_text(text, reply_markup=kb)
-
-# --- ГАЧА ОБРАБОТЧИКИ (СЧЕТЧИКИ) ---
-@dp.callback_query(F.data.startswith("gacha_"))
-async def callback_gacha_pull(callback: types.CallbackQuery):
-    user_id = str(callback.from_user.id)
-    p = user_data[user_id]
-    count = int(callback.data.split("_")[1])
     
-    cost = 50 if count == 1 else 450
-    if p["crystals"] < cost:
-        await callback.answer(f"❌ Недостаточно кристаллов! Нужно {cost} 💎.", show_alert=True)
-        return
-        
-    p["crystals"] -= cost
-    text = f"🎰 **Результаты призыва ({count}х):**\n\n"
-    
-    for _ in range(count):
-        new_item = perform_gacha_pull(p)
-        p["inventory"].append(new_item)
-        text += f"📦 *{new_item['name']}*\n  └ {format_item_stats(new_item)}\n"
-            
-    save_game(user_data)
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ К Призыву", callback_data="back_gacha")]])
-    await callback.message.edit_text(text, reply_markup=kb)
-
-@dp.callback_query(F.data == "back_gacha")
-async def callback_back_gacha(callback: types.CallbackQuery):
-    p = user_data.get(str(callback.from_user.id))
-    text = (
-        f"🎰 **Призыв**\n\n"
-        f"💎 Кристаллы: {p['crystals']}\n\n"
-        f"Шансы:\n"
-        f"🔴 Мифический: 0.5%\n"
-        f"🟡 Легендарный: 2.5% (гарант: 80 попыток)\n"
-        f"🟣 Эпический: 12% (гарант: 20 попыток)\n"
-        f"🔵 Редкий: 25%\n"
-        f"⬜ Обычный: ~60%"
-    )
-    await callback.message.edit_text(text, reply_markup=get_gacha_kb())
-
-@dp.callback_query(F.data == "back_nav")
-async def callback_back_nav(callback: types.CallbackQuery):
-    await callback.message.edit_text("🗺 Выберите направление:", reply_markup=get_nav_kb())
-
-# --- ИНВЕНТАРЬ ОБРАБОТЧИКИ ---
-@dp.callback_query(F.data.startswith("inv_equip_"))
-async def callback_inv_equip(callback: types.CallbackQuery):
-    user_id = str(callback.from_user.id)
-    idx = int(callback.data.split("_")[2])
-    p = user_data[user_id]
-    if idx >= len(p["inventory"]): return
-        
-    item = p["inventory"].pop(idx)
-    slot = item["slot"]
-    old_item = p["equipped"].get(slot)
-    if old_item: p["inventory"].append(old_item)
-    
-    p["equipped"][slot] = item
-    stats = get_total_stats(p)
-    p["hp"] = min(p["hp"], stats["total_max_hp"])
-    
-    save_game(user_data)
-    await show_inventory(user_id, callback)
-
-@dp.callback_query(F.data.startswith("inv_scrap_"))
-async def callback_inv_scrap(callback: types.CallbackQuery):
-    user_id = str(callback.from_user.id)
-    idx = int(callback.data.split("_")[2])
-    p = user_data[user_id]
-    if idx >= len(p["inventory"]): return
-    
-    item = p["inventory"].pop(idx)
-    p["dust"] = p.get("dust", 0) + RARITIES[item["rarity"]]["dust"]
-    save_game(user_data)
-    await show_inventory(user_id, callback)
-
-@dp.callback_query(F.data == "upg_weapon")
-async def callback_upgrade_weapon(callback: types.CallbackQuery):
-    user_id = str(callback.from_user.id)
-    p = user_data[user_id]
-    wp = p["equipped"].get("weapon")
-    if not wp:
-        await callback.answer("Сначала наденьте оружие!", show_alert=True)
-        return
-    cost = (wp.get("upgrade", 0) + 1) * 5
-    if p.get("dust", 0) < cost:
-        await callback.answer(f"Нужно {cost} пыли!", show_alert=True)
-        return
-    p["dust"] -= cost
-    wp["upgrade"] = wp.get("upgrade", 0) + 1
-    save_game(user_data)
-    await show_inventory(user_id, callback)
-
-# --- ДВИЖЕНИЕ И БОЙ ---
-@dp.callback_query(F.data.startswith("move_"))
-async def callback_move(callback: types.CallbackQuery):
-    user_id = str(callback.from_user.id)
-    p = user_data.get(user_id)
-    if not p: return
-    
-    if p.get("enemy_hp", 0) > 0:
-        await callback.answer("🚨 Вы в бою! Сначала победите врага.", show_alert=True)
-        return
-        
-    direction = callback.data.split("_")[1]
-    if direction == "up": p["y"] -= 1
-    elif direction == "down": p["y"] += 1
-    elif direction == "left": p["x"] -= 1
-    elif direction == "right": p["x"] += 1
-    
-    rand_enc = random.random()
-    if rand_enc < 0.10: 
-        p["enemy_type"] = "boss"
-        p["enemy_hp"] = random.randint(150 + p["level"] * 15, 250 + p["level"] * 25)
-        p["enemy_max"] = p["enemy_hp"]
-        await callback.message.edit_text(f"👑 **ЭПИЧЕСКИЙ БОСС!**\nЗдоровье Врага: {p['enemy_hp']} HP.", reply_markup=get_combat_kb())
-    elif rand_enc < 0.40:
-        p["enemy_type"] = "normal"
-        p["enemy_hp"] = random.randint(30 + p["level"] * 6, 60 + p["level"] * 10)
-        p["enemy_max"] = p["enemy_hp"]
-        await callback.message.edit_text(f"👹 Монстр нападает!\nЗдоровье Врага: {p['enemy_hp']} HP.", reply_markup=get_combat_kb())
-    else:
-        await callback.message.edit_text(f"🌲 Чисто.\n📍 Координаты: X: {p['x']} | Y: {p['y']}", reply_markup=get_nav_kb())
-    save_game(user_data)
-
-@dp.callback_query(F.data == "battle_hit")
-async def callback_battle_hit(callback: types.CallbackQuery):
-    user_id = str(callback.from_user.id)
-    p = user_data[user_id]
-    if p["enemy_hp"] <= 0: return
-    
-    stats = get_total_stats(p)
-    player_dmg = max(1, random.randint(int(stats["total_atk"] * 0.8), int(stats["total_atk"] * 1.2)))
-    p["enemy_hp"] -= player_dmg
-    
-    if p["enemy_hp"] <= 0:
-        p["enemy_hp"] = 0
-        if p.get("enemy_type") == "boss":
-            xp_gain = 100 + (p["level"] * 15)
-            gold_gain = random.randint(100, 200) + (p["level"] * 5)
-            crystal_gain = random.randint(5, 15) # Сбалансированная награда за босса
-            reward_txt = f"👑 **БОСС ПОВЕРЖЕН!**\nВы нанесли {player_dmg} урона."
-        else:
-            xp_gain = 25 + (p["level"] * 5)
-            gold_gain = random.randint(20, 40) + (p["level"] * 3)
-            crystal_gain = random.randint(1, 4) if random.random() < 0.25 else 0
-# --- ДВИЖЕНИЕ И БОЙ ---
-@dp.callback_query(F.data.startswith("move_"))
-async def callback_move(callback: types.CallbackQuery):
-    user_id = str(callback.from_user.id)
-    p = user_data.get(user_id)
-    
-    if not p:
-        await callback.answer("⏳ Сессия устарела. Напишите /start", show_alert=True)
-        return
-    
-    if p.get("enemy_hp", 0) > 0:
-        await callback.answer("🚨 Вы в бою! Сначала победите врага.", show_alert=True)
-        return
-        
-    direction = callback.data.split("_")[1]
-    if direction == "up": p["y"] -= 1
-    elif direction == "down": p["y"] += 1
-    elif direction == "left": p["x"] -= 1
-    elif direction == "right": p["x"] += 1
-    
-    rand_enc = random.random()
-    if rand_enc < 0.10: 
-        p["enemy_type"] = "boss"
-        p["enemy_hp"] = random.randint(150 + p["level"] * 15, 250 + p["level"] * 25)
-        p["enemy_max"] = p["enemy_hp"]
-        await callback.message.edit_text(f"👑 **ЭПИЧЕСКИЙ БОСС!**\nЗдоровье Врага: {p['enemy_hp']} HP.", reply_markup=get_combat_kb())
-    elif rand_enc < 0.40:
-        p["enemy_type"] = "normal"
-        p["enemy_hp"] = random.randint(30 + p["level"] * 6, 60 + p["level"] * 10)
-        p["enemy_max"] = p["enemy_hp"]
-        await callback.message.edit_text(f"👹 Монстр нападает!\nЗдоровье Врага: {p['enemy_hp']} HP.", reply_markup=get_combat_kb())
-    else:
-        await callback.message.edit_text(f"🌲 Чисто.\n📍 Координаты: X: {p['x']} | Y: {p['y']}", reply_markup=get_nav_kb())
-    
-    save_game(user_data)
-    await callback.answer() # Убираем "часики" с кнопки
-
-@dp.callback_query(F.data == "battle_hit")
-async def callback_battle_hit(callback: types.CallbackQuery):
-    user_id = str(callback.from_user.id)
-    p = user_data.get(user_id)
-    
-    if not p:
-        await callback.answer("⏳ Сессия устарела. Напишите /start", show_alert=True)
-        return
-        
-    if p.get("enemy_hp", 0) <= 0: 
-        await callback.answer("Враг уже повержен!", show_alert=True)
-        return
-    
-    stats = get_total_stats(p)
-    player_dmg = max(1, random.randint(int(stats["total_atk"] * 0.8), int(stats["total_atk"] * 1.2)))
-    p["enemy_hp"] -= player_dmg
-    
-    if p["enemy_hp"] <= 0:
-        p["enemy_hp"] = 0
-        if p.get("enemy_type") == "boss":
-            xp_gain = 100 + (p["level"] * 15)
-            gold_gain = random.randint(100, 200) + (p["level"] * 5)
-            crystal_gain = random.randint(5, 15)
-            reward_txt = f"👑 **БОСС ПОВЕРЖЕН!**\nВы нанесли {player_dmg} урона."
-        else:
-            xp_gain = 25 + (p["level"] * 5)
-            gold_gain = random.randint(20, 40) + (p["level"] * 3)
-            crystal_gain = random.randint(1, 4) if random.random() < 0.25 else 0
-            reward_txt = f"⚔️ Враг уничтожен! ({player_dmg} урона)"
-
-        p["gold"] += gold_gain
-        p["crystals"] += crystal_gain
-        lvl_up_text = add_xp(user_id, xp_gain)
-        
-        await callback.message.edit_text(f"{reward_txt}\n\n**Награда:**\n🔹 Опыт: +{xp_gain}\n💰 Золото: +{gold_gain}\n💎 Кристаллы: +{crystal_gain}{lvl_up_text}", reply_markup=get_nav_kb())
-    else:
-        multiplier = 2 if p.get("enemy_type") == "boss" else 1
-        monster_base = (8 + (p["level"] * 5)) * multiplier
-        monster_dmg = max(1, random.randint(monster_base, monster_base + 6) - stats["total_def"])
-        p["hp"] -= monster_dmg
-        
-        if p["hp"] <= 0:
-            p["hp"] = int(stats["total_max_hp"] * 0.5)
-            p["gold"] = max(0, p["gold"] - 50)
-            p["enemy_hp"] = 0
-            await callback.message.edit_text("💀 Вы погибли! Очнулись в лагере. Штраф: -50 золота.", reply_markup=get_nav_kb())
-        else:
-            await callback.message.edit_text(f"⚔️ Вы нанесли: {player_dmg} урона.\n👹 Враг ударил на: {monster_dmg} урона.\n\n❤️ Здоровье: {p['hp']}/{stats['total_max_hp']}\n🩸 Враг: {p['enemy_hp']}/{p['enemy_max']}", reply_markup=get_combat_kb())
-            
-    save_game(user_data)
-    await callback.answer() # Убираем зависание кнопки
-
-@dp.callback_query(F.data == "battle_heal")
-async def callback_battle_heal(callback: types.CallbackQuery):
-    user_id = str(callback.from_user.id)
-    p = user_data.get(user_id)
-    
-    if not p:
-        await callback.answer("⏳ Ошибка данных. Жмите /start", show_alert=True)
-        return
-        
-    stats = get_total_stats(p)
-    
-    if p.get("gold", 0) < 50:
-        await callback.answer("❌ Не хватает золота! Нужно 50 💰.", show_alert=True)
-        return
-    if p.get("hp", 0) >= stats["total_max_hp"]:
-        await callback.answer("У вас полное здоровье!", show_alert=True)
-        return
-        
-    p["gold"] -= 50
-    heal_amount = int(stats["total_max_hp"] * 0.4)
-    p["hp"] = min(stats["total_max_hp"], p["hp"] + heal_amount)
-    save_game(user_data)
-    
-    await callback.message.edit_text(f"🧪 Вы выпили зелье!\n❤️ Здоровье: {p['hp']}/{stats['total_max_hp']}\n🩸 Враг: {p['enemy_hp']}/{p['enemy_max']}", reply_markup=get_combat_kb())
-    await callback.answer()
-
-@dp.callback_query(F.data == "battle_flee")
-async def callback_battle_flee(callback: types.CallbackQuery):
-    user_id = str(callback.from_user.id)
-    p = user_data.get(user_id)
-    
-    if not p:
-        await callback.answer("⏳ Ошибка данных. Жмите /start", show_alert=True)
-        return
-        
-    if p.get("enemy_type") == "boss":
-        await callback.answer("❌ От Босса нельзя сбежать!", show_alert=True)
-        return
-        
-    p["enemy_hp"] = 0
-    save_game(user_data)
-    await callback.message.edit_text("💨 Вы сбежали.", reply_markup=get_nav_kb())
-    await callback.answer()
-
-async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
