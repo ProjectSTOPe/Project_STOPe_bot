@@ -28,21 +28,19 @@ CLASSES = {
     "Лучник": {"hp": 20, "strength": 6}
 }
 
-# --- МЕНЮ ---
-
+# Кнопки главного меню
 def get_main_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🏹 Охота", callback_data="hunt_menu")],
         [InlineKeyboardButton(text="📊 Статус", callback_data="status")]
     ])
 
+# Кнопки охоты
 def get_hunt_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⚔️ Атака", callback_data="attack"), InlineKeyboardButton(text="🔍 Исследовать", callback_data="explore")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="main_menu")]
     ])
-
-# --- ЛОГИКА ---
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -109,6 +107,8 @@ async def callback_explore(callback: types.CallbackQuery):
     await callback.message.edit_text(f"Ты нашел {gold} золота!", reply_markup=get_hunt_kb())
 
 async def main():
+    # Эта строка удаляет старые вебхуки и сбрасывает зависшие процессы
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
