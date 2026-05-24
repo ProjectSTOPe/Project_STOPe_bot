@@ -28,12 +28,21 @@ CLASSES = {
     "Лучник": {"hp": 20, "strength": 6}
 }
 
-# Кнопки меню
+# --- МЕНЮ ---
+
 def get_main_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⚔️ Атака", callback_data="attack"), InlineKeyboardButton(text="🔍 Исследовать", callback_data="explore")],
+        [InlineKeyboardButton(text="🏹 Охота", callback_data="hunt_menu")],
         [InlineKeyboardButton(text="📊 Статус", callback_data="status")]
     ])
+
+def get_hunt_kb():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⚔️ Атака", callback_data="attack"), InlineKeyboardButton(text="🔍 Исследовать", callback_data="explore")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="main_menu")]
+    ])
+
+# --- ЛОГИКА ---
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -60,9 +69,17 @@ async def set_class(callback: types.CallbackQuery):
     save_game(user_data)
     await callback.message.edit_text(f"Вы выбрали {cls}!", reply_markup=get_main_kb())
 
+@dp.callback_query(F.data == "main_menu")
+async def back_to_main(callback: types.CallbackQuery):
+    await callback.message.edit_text("Главное меню:", reply_markup=get_main_kb())
+
+@dp.callback_query(F.data == "hunt_menu")
+async def hunt_menu(callback: types.CallbackQuery):
+    await callback.message.edit_text("Ты вышел на охоту. Что делаем?", reply_markup=get_hunt_kb())
+
 @dp.callback_query(F.data == "status")
 async def callback_status(callback: types.CallbackQuery):
-    p = user_data[str(callback.from_user.id)]
+    p = user_data.get(str(callback.from_user.id))
     text = (f"👤 {p['name']} ({p['class']})\n"
             f"⭐ Уровень: {p['level']} | XP: {p['xp']}/100\n"
             f"❤️ HP: {p['hp']}/{p['max_hp']}\n"
@@ -81,15 +98,15 @@ async def callback_attack(callback: types.CallbackQuery):
         p['hp'] = p['max_hp']
         await callback.answer("Уровень повышен!")
     save_game(user_data)
-    await callback.message.edit_text("Вы победили монстра! +20 XP", reply_markup=get_main_kb())
+    await callback.message.edit_text("Монстр повержен! +20 XP", reply_markup=get_hunt_kb())
 
 @dp.callback_query(F.data == "explore")
 async def callback_explore(callback: types.CallbackQuery):
     user_id = str(callback.from_user.id)
-    gold_found = random.randint(10, 50)
-    user_data[user_id]['gold'] += gold_found
+    gold = random.randint(10, 50)
+    user_data[user_id]['gold'] += gold
     save_game(user_data)
-    await callback.message.edit_text(f"Вы исследовали местность и нашли {gold_found} золота!", reply_markup=get_main_kb())
+    await callback.message.edit_text(f"Ты нашел {gold} золота!", reply_markup=get_hunt_kb())
 
 async def main():
     await dp.start_polling(bot)
