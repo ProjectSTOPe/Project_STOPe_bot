@@ -12,7 +12,6 @@ SAVE_FILE = "game_save.json"
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# --- База данных ---
 def load_game():
     if os.path.exists(SAVE_FILE):
         with open(SAVE_FILE, "r") as f: return json.load(f)
@@ -23,25 +22,23 @@ def save_game(data):
 
 user_data = load_game()
 
-# --- Классы персонажей ---
 CLASSES = {
     "Воин": {"hp": 30, "strength": 8},
     "Маг": {"hp": 15, "strength": 12},
     "Лучник": {"hp": 20, "strength": 6}
 }
 
-# --- Логика игры ---
+# Кнопки меню
 def get_main_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⬆️", callback_data="move_up"), InlineKeyboardButton(text="⬇️", callback_data="move_down")],
-        [InlineKeyboardButton(text="⚔️ Атака", callback_data="attack"), InlineKeyboardButton(text="📊 Статус", callback_data="status")]
+        [InlineKeyboardButton(text="⚔️ Атака", callback_data="attack"), InlineKeyboardButton(text="🔍 Исследовать", callback_data="explore")],
+        [InlineKeyboardButton(text="📊 Статус", callback_data="status")]
     ])
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     user_id = str(message.from_user.id)
     if user_id not in user_data:
-        # Предлагаем выбор класса
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Воин", callback_data="class_Воин")],
             [InlineKeyboardButton(text="Маг", callback_data="class_Маг")],
@@ -49,7 +46,7 @@ async def cmd_start(message: types.Message):
         ])
         await message.answer("Выберите ваш класс:", reply_markup=kb)
     else:
-        await message.answer("Вы уже в игре!", reply_markup=get_main_kb())
+        await message.answer("Главное меню:", reply_markup=get_main_kb())
 
 @dp.callback_query(F.data.startswith("class_"))
 async def set_class(callback: types.CallbackQuery):
@@ -61,7 +58,7 @@ async def set_class(callback: types.CallbackQuery):
         "strength": stats["strength"], "level": 1, "xp": 0, "gold": 100
     }
     save_game(user_data)
-    await callback.message.edit_text(f"Вы выбрали {cls}! Удачи в пути.", reply_markup=get_main_kb())
+    await callback.message.edit_text(f"Вы выбрали {cls}!", reply_markup=get_main_kb())
 
 @dp.callback_query(F.data == "status")
 async def callback_status(callback: types.CallbackQuery):
@@ -76,7 +73,6 @@ async def callback_status(callback: types.CallbackQuery):
 async def callback_attack(callback: types.CallbackQuery):
     user_id = str(callback.from_user.id)
     p = user_data[user_id]
-    # Начисление опыта
     p['xp'] += 20
     if p['xp'] >= 100:
         p['level'] += 1
@@ -85,7 +81,15 @@ async def callback_attack(callback: types.CallbackQuery):
         p['hp'] = p['max_hp']
         await callback.answer("Уровень повышен!")
     save_game(user_data)
-    await callback.message.edit_text("Вы победили монстра и получили опыт!", reply_markup=get_main_kb())
+    await callback.message.edit_text("Вы победили монстра! +20 XP", reply_markup=get_main_kb())
+
+@dp.callback_query(F.data == "explore")
+async def callback_explore(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    gold_found = random.randint(10, 50)
+    user_data[user_id]['gold'] += gold_found
+    save_game(user_data)
+    await callback.message.edit_text(f"Вы исследовали местность и нашли {gold_found} золота!", reply_markup=get_main_kb())
 
 async def main():
     await dp.start_polling(bot)
