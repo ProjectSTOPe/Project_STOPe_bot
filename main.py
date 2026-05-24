@@ -241,7 +241,14 @@ async def callback_class_select(callback: types.CallbackQuery):
 # --- ОБРАБОТКА КНОПОК МЕНЮ ---
 @dp.message(F.text == "🗺 Навигация")
 async def menu_nav(message: types.Message):
-    await message.answer("🗺 Панель перемещения:", reply_markup=get_nav_kb())
+    user_id = str(message.from_user.id)
+    p = user_data.get(user_id)
+    
+    # Проверяем, жив ли враг в сохранении
+    if p and p.get("enemy_hp", 0) > 0:
+        await message.answer(f"🚨 Вы всё ещё в бою!\n🩸 Здоровье Врага: {p['enemy_hp']}/{p.get('enemy_max', p['enemy_hp'])}", reply_markup=get_combat_kb())
+    else:
+        await message.answer("🗺 Панель перемещения:", reply_markup=get_nav_kb())
 
 @dp.message(F.text == "🔮 Призыв")
 async def menu_gacha(message: types.Message):
