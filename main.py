@@ -264,10 +264,235 @@ async def menu_gacha(message: types.Message):
     )
     await message.answer(text, reply_markup=get_gacha_kb())
 
-@dp.message(F.text == "👤 Герой")
-async def menu_hero(message: types.Message):
-    p = user_data.get(str(message.from_user.id))
-    if not p: return
+@dp.callback_query(F.data == "back_nav")
+async def callback_back_nav(callback: types.CallbackQuery):
+    await callback.message.edit_text("🗺 Выберите направление:", reply_markup=get_nav_kb())
+    await callback.answer()
+
+# --- ИНВЕНТАРЬ ОБРАБОТЧИКИ ---
+@dp.callback_query(F.data.startswith("inv_equip_"))
+async def callback_inv_equip(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    p = user_data.get(user_id)
+    if not p:
+        await callback.answer("⏳ Сессия устарела. Напишите /start", show_alert=True)
+        return
+        
+    idx = int(callback.data.split("_")[2])
+    if idx >= len(p["inventory"]): 
+        await callback.answer()
+        return
+        
+    item = p["inventory"].pop(idx)
+    slot = item["slot"]
+    old_item = p["equipped"].get(slot)
+    if old_item: p["inventory"].append(old_item)
+    
+    p["equipped"][slot] = item
+    stats = get_total_stats(p)
+    p["hp"] = min(p["hp"], stats["total_max_hp"])
+    
+    save_game(user_data)
+    await show_inventory(user_id, callback)
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("inv_scrap_"))
+async def callback_inv_scrap(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    p = user_data.get(user_id)
+    if not p:
+        await callback.answer("⏳ Сессия устарела. Напишите /start", show_alert=True)
+        return
+        
+    idx = int(callback.data.split("_")[2])
+    if idx >= len(p["inventory"]): 
+        await callback.answer()
+        return
+    
+    item = p["inventory"].pop(idx)
+    p["dust"] = p.get("dust", 0) + RARITIES[item["rarity"]]["dust"]
+    save_game(user_data)
+    await show_inventory(user_id, callback)
+    await callback.answer()
+
+@dp.callback_query(F.data == "upg_weapon")
+async def callback_upgrade_weapon(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    p = user_data.get(user_id)
+    if not p:
+        await callback.answer("⏳ Сессия устарела. Напишите /start", show_alert=True)
+        return
+        
+    wp = p["equipped"].get("weapon")
+    if not wp:
+        await callback.answer("Сначала наденьте оружие!", show_alert=True)
+        return
+        
+    cost = (wp.get("upgrade", 0) + 1) * 5
+    if p.get("dust", 0) < cost:
+        await callback.answer(f"Нужно {cost} пыли!", show_alert=True)
+        return
+        
+    p["dust"] -= cost
+    wp["upgrade"] = wp.get("upgrade", 0) + 1
+    save_game(user_data)
+    await show_inventory(user_id, callback)
+    await callback.answer("Оружие улучшено!", show_alert=False)
+
+# --- ДВИЖЕНИЕ И БОЙ ---
+@dp.callback_query(F.data.startswith("move_"))
+async def callback_move(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    p = user_data.get(user_id)
+    if not p:
+        await callback.answer("⏳ Сессия устарела. Напишите /start", show_alert=True)
+        return
+    
+    if p.get("enemy_hp", 0) > 0:
+        await callback.answer("🚨 Вы в бою! Сначала победите врага.", show_alert=True)
+        return
+        
+    direction = callback.data.split("_")[1]
+    if direction == "up": p["y"] -= 1
+    elif direction == "down": p["y"] += 1
+    elif direction == "left": p["x"] -= 1
+    elif direction == "right": p["x"] += 1
+    
+    rand_enc = random.random()
+    if rand_enc < 0.10: 
+        p["enemy_type"] = "boss"
+        p["enemy_hp"] = random.randint(150 + p["level"] * 15, 250 + p["level"] * 25)
+        p["enemy_max"] = p["enemy_hp"]
+        await callback.message.edit_text(f"👑 **ЭПИЧЕСКИЙ БОСС!**\nЗдоровье Врага: {p['enemy_hp']} HP.", reply_markup=get_combat_kb())
+    elif rand_enc < 0.40:
+        p["enemy_type"] = "normal"
+        p["enemy_hp"] = random.randint(30 + p["level"] * 6, 60 + p["level"] * 10)
+        p["enemy_max"] = p["enemy_hp"]
+        await callback.message.edit_text(f"👹 Монстр нападает!\nЗдоровье Врага: {p['enemy_hp']} HP.", reply_markup=get_combat_kb())
+    else:
+        await callback.message.edit_text(f"🌲 Чисто.\n📍 Координаты: X: {p['x']} | Y: {p['y']}", reply_markup=get_nav_kb())
+    save_game(user_data)
+    await callback.answer()
+
+@dp.callback_query(F.data == "battle_hit")
+async def callback_battle_hit(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    p = user_data.get(user_id)
+    if not p:
+        await callback.answer("⏳ Сессия устарела. Напишите /start", show_alert=True)
+        return
+        
+    if p.get("enemy_hp", 0) <= 0:
+        await callback.answer("Враг уже повержен!", show_alert=True)
+        return
+    
+    stats = get_total_stats(p)
+    player_dmg = max(1, random.randint(int(stats["total_atk"] * 0.8), int(stats["total_atk"] * 1.2)))
+    p["enemy_hp"] -= player_dmg
+    
+    if p["enemy_hp"] <= 0:
+        p["enemy_hp"] = 0
+        if p.get("enemy_type") == "boss":
+            xp_gain = 100 + (p["level"] * 15)
+            gold_gain = random.randint(100, 200) + (p["level"] * 5)
+            crystal_gain = random.randint(5, 15)
+            reward_txt = f"👑 **БОСС ПОВЕРЖЕН!**\nВы нанесли {player_dmg} урона."
+        else:
+            xp_gain = 25 + (p["level"] * 5)
+            gold_gain = random.randint(20, 40) + (p["level"] * 3)
+            crystal_gain = random.randint(1, 4) if random.random() < 0.25 else 0
+            reward_txt = f"⚔️ Враг уничтожен! ({player_dmg} урона)"
+
+        p["gold"] += gold_gain
+        p["crystals"] += crystal_gain
+        lvl_up_text = add_xp(user_id, xp_gain)
+        
+        await callback.message.edit_text(f"{reward_txt}\n\n**Награда:**\n🔹 Опыт: +{xp_gain}\n💰 Золото: +{gold_gain}\n💎 Кристаллы: +{crystal_gain}{lvl_up_text}", reply_markup=get_nav_kb())
+    else:
+        multiplier = 2 if p.get("enemy_type") == "boss" else 1
+        monster_base = (8 + (p["level"] * 5)) * multiplier
+        monster_dmg = max(1, random.randint(monster_base, monster_base + 6) - stats["total_def"])
+        p["hp"] -= monster_dmg
+        
+        if p["hp"] <= 0:
+            p["hp"] = int(stats["total_max_hp"] * 0.5)
+            p["gold"] = max(0, p["gold"] - 50)
+            p["enemy_hp"] = 0
+            await callback.message.edit_text("💀 Вы погибли! Очнулись в лагере. Штраф: -50 золота.", reply_markup=get_nav_kb())
+        else:
+            await callback.message.edit_text(f"⚔️ Вы нанесли: {player_dmg} урона.\n👹 Враг ударил на: {monster_dmg} урона.\n\n❤️ Здоровье: {p['hp']}/{stats['total_max_hp']}\n🩸 Враг: {p['enemy_hp']}/{p['enemy_max']}", reply_markup=get_combat_kb())
+            
+    save_game(user_data)
+    await callback.answer()
+
+@dp.callback_query(F.data == "battle_heal")
+async def callback_battle_heal(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    p = user_data.get(user_id)
+    if not p:
+        await callback.answer("⏳ Ошибка данных. Жмите /start", show_alert=True)
+        return
+        
     stats = get_total_stats(p)
     
+    if p["gold"] < 50:
+        await callback.answer("❌ Не хватает золота! Нужно 50 💰.", show_alert=True)
+        return
+    if p["hp"] >= stats["total_max_hp"]:
+        await callback.answer("У вас полное здоровье!", show_alert=True)
+        return
+        
+    p["gold"] -= 50
+    heal_amount = int(stats["total_max_hp"] * 0.4)
+    p["hp"] = min(stats["total_max_hp"], p["hp"] + heal_amount)
+    save_game(user_data)
+    await callback.message.edit_text(f"🧪 Вы выпили зелье!\n❤️ Здоровье: {p['hp']}/{stats['total_max_hp']}\n🩸 Враг: {p['enemy_hp']}/{p['enemy_max']}", reply_markup=get_combat_kb())
+    await callback.answer()
+
+@dp.callback_query(F.data == "battle_flee")
+async def callback_battle_flee(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    p = user_data.get(user_id)
+    if not p:
+        await callback.answer("⏳ Ошибка данных. Жмите /start", show_alert=True)
+        return
+        
+    if p.get("enemy_type") == "boss":
+        await callback.answer("❌ От Босса нельзя сбежать!", show_alert=True)
+        return
+        
+    p["enemy_hp"] = 0
+    save_game(user_data)
+    await callback.message.edit_text("💨 Вы сбежали.", reply_markup=get_nav_kb())
+    await callback.answer()
+
+# --- ФЕЙКОВЫЙ СЕРВЕР ДЛЯ RENDER ---
+async def handle_ping(request):
+    return web.Response(text="Bot is running!")
+
+async def main():
+    await bot.delete_webhook(drop_pending_updates=True)
     
+    # 1. Запускаем бота как фоновую задачу
+    asyncio.create_task(dp.start_polling(bot))
+    
+    # 2. Поднимаем веб-сервер, чтобы Render нас не убивал
+    app = web.Application()
+    app.router.add_get('/', handle_ping)
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    # Render передает нужный порт через переменную окружения PORT
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    
+    print(f"Сервер запущен на порту {port}")
+    await site.start()
+    
+    # Бесконечный цикл, чтобы программа не выключилась
+    while True:
+        await asyncio.sleep(3600)
+
+if __name__ == "__main__":
+    asyncio.run(main())
