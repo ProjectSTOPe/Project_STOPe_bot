@@ -504,4 +504,14 @@ async def callback_battle_flee(callback: types.CallbackQuery):
     p = user_data[user_id]
     if p.get("enemy_type") == "boss":
         await callback.answer("❌ От Босса нельзя сбежать!", show_alert=True)
-      
+        return
+    p["enemy_hp"] = 0
+    save_game(user_data)
+    await callback.message.edit_text("💨 Вы сбежали.", reply_markup=get_nav_kb())
+
+async def main():
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
