@@ -24,6 +24,19 @@ def save_game(data):
 
 user_data = load_game()
 
+# Функция добавления опыта
+def add_xp(user_id, amount):
+    user = user_data.get(str(user_id))
+    if not user: return
+    
+    user["xp"] = user.get("xp", 0) + amount
+    # Простейшая проверка уровня (каждые 100 опыта)
+    if user["xp"] >= 100:
+        user["level"] += 1
+        user["xp"] = 0
+        user["hp"] += 5 # Бонус к здоровью при левелапе
+    save_game(user_data)
+
 # Меню кнопок
 def get_game_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -38,8 +51,8 @@ async def cmd_start(message: types.Message):
     user_id = str(message.from_user.id)
     if user_id not in user_data:
         user_data[user_id] = {
-            "name": "Raimund", "hp": 20, "strength": 5, "gold": 250,
-            "level": 1, "x": 15, "y": 9, "inventory": ["Зелье", "Ключ"], "enemy_hp": 0
+            "name": "Raimund", "hp": 20, "strength": 5, "gold": 250, 
+            "level": 1, "xp": 0, "x": 15, "y": 9, "inventory": ["Зелье"], "enemy_hp": 0
         }
         save_game(user_data)
     await message.answer("Добро пожаловать в Project STOPe!", reply_markup=get_game_kb())
@@ -49,12 +62,12 @@ async def callback_move(callback: types.CallbackQuery):
     user_id = str(callback.from_user.id)
     direction = callback.data.split("_")[1]
     p = user_data[user_id]
-
+    
     if direction == "up": p['y'] -= 1
     elif direction == "down": p['y'] += 1
     elif direction == "left": p['x'] -= 1
     elif direction == "right": p['x'] += 1
-
+    
     if random.random() < 0.3:
         p['enemy_hp'] = random.randint(10, 15)
         await callback.message.edit_text(f"⚠️ Встретил врага! HP: {p['enemy_hp']}", reply_markup=get_game_kb())
@@ -67,27 +80,23 @@ async def callback_attack(callback: types.CallbackQuery):
     user_id = str(callback.from_user.id)
     p = user_data[user_id]
     if p.get('enemy_hp', 0) > 0:
-        p['enemy_hp'] -= 5
+        p['enemy_hp'] -= p['strength'] # Урон зависит от силы
         if p['enemy_hp'] <= 0:
-            await callback.answer("Враг побежден!")
-            await callback.message.edit_text("Враг повержен!", reply_markup=get_game_kb())
+            add_xp(user_id, 30) # Даем 30 опыта за победу
+            await callback.answer("Враг побежден! +30 XP")
+            await callback.message.edit_text("Враг повержен! Ты стал сильнее.", reply_markup=get_game_kb())
         else:
             await callback.answer(f"Удар! У врага осталось {p['enemy_hp']} HP")
     else:
         await callback.answer("Врагов нет!")
     save_game(user_data)
 
-@dp.callback_query(F.data == "explore")
-async def callback_explore(callback: types.CallbackQuery):
-    event = random.choice(["Сундук с золотом", "Заброшенный дом", "Пустота"])
-    await callback.answer(f"Ты нашел: {event}!", show_alert=True)
-
 @dp.callback_query(F.data == "status")
 async def callback_status(callback: types.CallbackQuery):
     p = user_data[str(callback.from_user.id)]
-    status_text = (f"👤 {p['name']} | ❤️ {p['hp']} | 💰 {p['gold']}\n"
-                   f"📍 Координаты: {p['x']}:{p['y']}\n"
-                   f"🎒 Инвентарь: {', '.join(p['inventory'])}")
+    status_text = (f"👤 {p['name']} | Ур: {p['level']} | XP: {p['xp']}/100\n"
+                   f"❤️ {p['hp']} | 💰 {p['gold']} | ⚔️ Сила: {p['strength']}\n"
+                   f"📍 Координаты: {p['x']}:{p['y']}")
     await callback.message.edit_text(status_text, reply_markup=get_game_kb())
 
 async def main():
@@ -95,3 +104,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+    
