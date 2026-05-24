@@ -1,2 +1,1 @@
-```text
-    aiogram==3.15.0
+aiogram==3.15.0
