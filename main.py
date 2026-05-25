@@ -8,7 +8,7 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiohttp import web
 
-BOT_TOKEN = "8824282617:AAFl4gMea_Ocy9tz57E4S4Fmw9lzQckldEQ"
+BOT_TOKEN = "8824282617:AAEd4ycUGPfdktkJR_Uks2sYlv7KgleJudE"
 SAVE_FILE = "game_save.json"
 
 bot = Bot(token=BOT_TOKEN)
