@@ -9,7 +9,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeybo
 from aiohttp import web
 
 # --- КОНФИГУРАЦИЯ БОТА И ОПЛАТЫ ---
-BOT_TOKEN = "8824282617:AAFl4gMea_Ocy9tz57E4S4Fmw9lzQckldEQ"
+BOT_TOKEN = "8824282617:AAEd4ycUGPfdktkJR_Uks2sYlv7KgleJudE"
 # Оставь пустым для приема Telegram Stars (XTR) — это самый надежный способ без сторонних касс
 PAYMENT_PROVIDER_TOKEN = "" 
 SAVE_FILE = "game_save.json"
