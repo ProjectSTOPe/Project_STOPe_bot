@@ -11,7 +11,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiohttp import web
 
 # --- КОНФИГУРАЦИЯ БОТА И ОПЛАТЫ ---
-BOT_TOKEN = "8824282617:AAFl4gMea_Ocy9tz57E4S4Fmw9lzQckldEQ"
+BOT_TOKEN = "8824282617:AAEd4ycUGPfdktkJR_Uks2sYlv7KgleJudE"
 PAYMENT_PROVIDER_TOKEN = "" # Оставь пустым для приема Telegram Stars (XTR)
 
 # Умное определение пути сохранения для Render Persistent Disk
