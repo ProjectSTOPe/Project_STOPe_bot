@@ -7,12 +7,17 @@ from datetime import date
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, LabeledPrice
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiohttp import web
 
 # --- КОНФИГУРАЦИЯ БОТА И ОПЛАТЫ ---
-BOT_TOKEN = "8824282617:AAEd4ycUGPfdktkJR_Uks2sYlv7KgleJudE"
+BOT_TOKEN = "8824282617:AAFl4gMea_Ocy9tz57E4S4Fmw9lzQckldEQ"
 PAYMENT_PROVIDER_TOKEN = "" # Оставь пустым для приема Telegram Stars (XTR)
-SAVE_FILE = "game_save.json" # Для Render замени на "/data/game_save.json"
+
+# Умное определение пути сохранения для Render Persistent Disk
+SAVE_FILE = "game_save.json"
+if os.path.exists("/data") or os.environ.get("RENDER"):
+    SAVE_FILE = "/data/game_save.json"
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -46,8 +51,7 @@ DEFAULT_PLAYER_DATA = {
     "auto_hunt_remaining": 0,
     "inventory": [], 
     "equipped": {"weapon": None, "armor": None, "jewelry": None},
-    "auto_scrap": {"Common": False, "Rare": False, "Epic": False},
-    # Новые поля для PvP:
+    "auto_scrap": {"Common": False, "Uncommon": False, "Rare": False, "Epic": False},
     "pvp_rating": 1000,
     "pvp_wins": 0,
     "pvp_losses": 0,
@@ -80,18 +84,25 @@ def load_game():
 async def save_game():
     async with data_lock:
         try:
+            # На случай, если папка /data еще не создана операционной системой
+            dir_name = os.path.dirname(SAVE_FILE)
+            if dir_name and not os.path.exists(dir_name):
+                os.makedirs(dir_name, exist_ok=True)
+                
             with open(SAVE_FILE, "w", encoding="utf-8") as f:
                 json.dump(user_data, f, ensure_ascii=False, indent=4)
         except Exception as e:
             print(f"Ошибка записи в БД: {e}")
 
 # --- БАЗЫ ДАННЫХ И НАСТРОЙКИ ПРЕДМЕТОВ ---
+# Шансы перебалансированы под 100% с учетом Зеленого грейда
 RARITIES = {
-    "Common": {"name": "⬜ Обычный", "dust": 1, "mult": 1, "chance": 60.0},
-    "Rare": {"name": "🔵 Редкий", "dust": 3, "mult": 2, "chance": 25.0},
-    "Epic": {"name": "🟣 Эпический", "dust": 10, "mult": 4, "chance": 12.0},
-    "Legendary": {"name": "🟡 Легендарный", "dust": 35, "mult": 8, "chance": 2.5},
-    "Mythic": {"name": "🔴 Мифический", "dust": 100, "mult": 15, "chance": 0.5}
+    "Common": {"name": "⬜ Серое (Обычный)", "dust": 1, "mult": 1, "chance": 45.0},
+    "Uncommon": {"name": "🟢 Зелёное (Необычный)", "dust": 2, "mult": 1.5, "chance": 25.0},
+    "Rare": {"name": "🔵 Синее (Редкий)", "dust": 5, "mult": 2.5, "chance": 15.0},
+    "Epic": {"name": "🟣 Фиолетовое (Эпический)", "dust": 15, "mult": 4.5, "chance": 11.0},
+    "Legendary": {"name": "🟡 Золотое (Легендарный)", "dust": 50, "mult": 9, "chance": 3.5},
+    "Mythic": {"name": "🔴 Красное (Мифический)", "dust": 150, "mult": 16, "chance": 0.5}
 }
 
 WEAPONS = {
@@ -157,7 +168,7 @@ def add_xp(user_id, amount):
             break
     return lvl_up_msg
 
-# --- ГЕНЕРАЦИЯ ПРЕДМЕТОВ ---
+# --- ГЕНЕРАЦИЯ ПРЕДМЕТОВ И ПРИЗЫВ ---
 def create_item(rarity_key):
     slot = random.choice(["weapon", "armor", "jewelry"])
     req_class = None
@@ -173,11 +184,11 @@ def create_item(rarity_key):
     stats = {"hp": 0, "atk": 0, "def": 0}
     
     if slot == "weapon":
-        stats["atk"] = random.randint(5, 12) * mult; stats["hp"] = random.randint(0, 5) * mult
+        stats["atk"] = int(random.randint(5, 12) * mult); stats["hp"] = int(random.randint(0, 5) * mult)
     elif slot == "armor":
-        stats["hp"] = random.randint(20, 40) * mult; stats["def"] = random.randint(3, 8) * mult
+        stats["hp"] = int(random.randint(20, 40) * mult); stats["def"] = int(random.randint(3, 8) * mult)
     else: 
-        stats["atk"] = random.randint(2, 6) * mult; stats["hp"] = random.randint(10, 20) * mult; stats["def"] = random.randint(1, 4) * mult
+        stats["atk"] = int(random.randint(2, 6) * mult); stats["hp"] = int(random.randint(10, 20) * mult); stats["def"] = int(random.randint(1, 4) * mult)
     return {"name": name, "slot": slot, "rarity": rarity_key, "stats": stats, "upgrade": 0, "req_class": req_class}
 
 def perform_gacha_pull(p):
@@ -191,10 +202,11 @@ def perform_gacha_pull(p):
     else:
         roll = random.uniform(0, 100)
         if roll <= 0.5: rarity_key = "Mythic"
-        elif roll <= 3.0: rarity_key = "Legendary"
-        elif roll <= 15.0: rarity_key = "Epic"
-        elif roll <= 40.0: rarity_key = "Rare"
-        else: rarity_key = "Common"
+        elif roll <= 4.0: rarity_key = "Legendary" # 3.5%
+        elif roll <= 15.0: rarity_key = "Epic"       # 11%
+        elif roll <= 30.0: rarity_key = "Rare"       # 15%
+        elif roll <= 55.0: rarity_key = "Uncommon"   # 25%
+        else: rarity_key = "Common"                  # 45%
             
     if rarity_key in ["Legendary", "Mythic"]: p["pity_leg"] = 0; p["pity_epic"] = 0
     elif rarity_key == "Epic": p["pity_epic"] = 0
@@ -252,8 +264,9 @@ def get_gacha_kb():
 def get_auto_hunt_kb(p):
     scrap = p.get("auto_scrap", {})
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"{'✅' if scrap.get('Common') else '❌'} Разбор Обычных", callback_data="toggle_scrap_Common")],
-        [InlineKeyboardButton(text=f"{'✅' if scrap.get('Rare') else '❌'} Разбор Редких", callback_data="toggle_scrap_Rare")],
+        [InlineKeyboardButton(text=f"{'✅' if scrap.get('Common') else '❌'} Разбор Серых", callback_data="toggle_scrap_Common")],
+        [InlineKeyboardButton(text=f"{'✅' if scrap.get('Uncommon') else '❌'} Разбор Зелёных", callback_data="toggle_scrap_Uncommon")],
+        [InlineKeyboardButton(text=f"{'✅' if scrap.get('Rare') else '❌'} Разбор Синих", callback_data="toggle_scrap_Rare")],
         [InlineKeyboardButton(text=f"{'✅' if scrap.get('Epic') else '❌'} Разбор Эпических", callback_data="toggle_scrap_Epic")],
         [InlineKeyboardButton(text="▶️ Запустить 1 час (999 💎)", callback_data="start_auto_hunt")],
         [InlineKeyboardButton(text="↩️ Назад", callback_data="back_nav")]
@@ -287,7 +300,7 @@ async def menu_pvp_top(message: types.Message):
     sorted_users = sorted(user_data.values(), key=lambda x: x.get("pvp_rating", 1000), reverse=True)
     text = "🏆 <b>Топ-10 Арены:</b>\n\n"
     for i, u in enumerate(sorted_users[:10], 1):
-        if not u.get("class"): continue # Пропускаем тех, кто не выбрал класс
+        if not u.get("class"): continue 
         text += f"<b>{i}. {u['name']}</b> — {u.get('pvp_rating', 1000)} 🏆 (Поб: {u.get('pvp_wins',0)} | Пор: {u.get('pvp_losses',0)})\n"
     await message.answer(text, parse_mode="HTML")
 
@@ -313,7 +326,6 @@ async def pvp_search_opponent(callback: types.CallbackQuery):
     if not p: return
     reset_pvp_attempts(p)
     
-    # Ищем игроков, исключая себя и тех, кто не прошел обучение (нет класса)
     opponents = [u for u, data in user_data.items() if u != uid and data.get("class")]
     if not opponents:
         await callback.answer("Противники не найдены! В игре пока мало людей.", show_alert=True)
@@ -356,7 +368,6 @@ async def pvp_buy_attempt(callback: types.CallbackQuery):
     await save_game()
     await callback.answer("✅ Попытка успешно куплена!", show_alert=True)
     
-    # Обновляем текст, чтобы показать новую попытку
     opp = user_data.get(opp_id)
     if opp:
         opp_stats = get_total_stats(opp)
@@ -398,12 +409,11 @@ async def pvp_execute_attack(callback: types.CallbackQuery):
     p_stats = get_total_stats(p)
     opp_stats = get_total_stats(opp)
 
-    # Симуляция боя
     p_hp = p_stats["total_max_hp"]
     opp_hp = opp_stats["total_max_hp"]
     winner = None
 
-    for _ in range(30): # Лимит в 30 раундов
+    for _ in range(30): 
         dmg_to_opp = max(1, random.randint(int(p_stats["total_atk"] * 0.8), int(p_stats["total_atk"] * 1.2)) - opp_stats["total_def"])
         opp_hp -= dmg_to_opp
         if opp_hp <= 0:
@@ -419,13 +429,12 @@ async def pvp_execute_attack(callback: types.CallbackQuery):
     if winner is None:
         winner = "player" if p_hp > opp_hp else "opp"
 
-    # Расчет рейтинга
     p_rating = p.get("pvp_rating", 1000)
     opp_rating = opp.get("pvp_rating", 1000)
     rating_diff = opp_rating - p_rating
     
     gain = int(40 + (rating_diff * 0.1))
-    gain = max(10, min(80, gain)) # Очки рейтинга от 10 до 80
+    gain = max(10, min(80, gain)) 
 
     if winner == "player":
         p["pvp_rating"] = p_rating + gain
@@ -628,7 +637,7 @@ async def callback_battle_hit(callback: types.CallbackQuery):
         elif e_type == "boss_red": drop_item = create_item("Legendary" if roll < 3 else "Epic" if roll < 15 else "Rare"); xp_gain = 250 + (p["level"] * 25); gold_gain = 400
         elif e_type == "boss_normal": drop_item = create_item("Epic" if roll < 5 else "Rare" if roll < 35 else "Common"); xp_gain = 100 + (p["level"] * 15); gold_gain = 150
         else:
-            if roll < 15: drop_item = create_item("Common")
+            if roll < 20: drop_item = create_item("Uncommon" if random.random() < 0.3 else "Common")
             xp_gain = 25 + (p["level"] * 5); gold_gain = 30
 
         p["gold"] += gold_gain
@@ -637,8 +646,11 @@ async def callback_battle_hit(callback: types.CallbackQuery):
         
         reward_txt = f"⚔️ <b>Вы победили!</b>\n🔹 Опыт: +{xp_gain}\n💰 Золото: +{gold_gain}"
         if drop_item:
-            p["inventory"].append(drop_item)
-            reward_txt += f"\n🎁 Награда: {drop_item['name']}"
+            if len(p["inventory"]) < 30:
+                p["inventory"].append(drop_item)
+                reward_txt += f"\n🎁 Награда: {drop_item['name']}"
+            else:
+                reward_txt += f"\n🎒 Инвентарь переполнен, предмет утерян!"
         await callback.message.edit_text(reward_txt + lvl_up_text, reply_markup=get_nav_kb(), parse_mode="HTML")
     else:
         multiplier = p.get("enemy_atk_mult", 1)
@@ -689,7 +701,7 @@ async def menu_gacha(message: types.Message):
     user_id = str(message.from_user.id)
     p = user_data.get(user_id)
     if not p: return
-    text = f"🎰 <b>Призыв S-Rank Оружия и Брони</b>\n\n💎 Баланс: {p['crystals']} кр.\nМифик: 0.5% | Легенда: 2.5% | Эпик: 12%"
+    text = f"🎰 <b>Призыв S-Rank Оружия и Брони</b>\n\n💎 Баланс: {p['crystals']} кр.\nМифик: 0.5% | Легенда: 3.5% | Эпик: 11% | Синька: 15% | Зелень: 25% | Серое: 45%"
     await message.answer(text, reply_markup=get_gacha_kb(), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("gacha_"))
@@ -716,6 +728,7 @@ async def callback_do_gacha(callback: types.CallbackQuery):
     await callback.message.answer(f"✨ <b>Результаты призыва:</b>\n" + "\n".join(results), parse_mode="HTML")
     await callback.message.edit_text(f"🎰 Призыв снаряжения\n💎 Кристаллы: {p['crystals']}", reply_markup=get_gacha_kb())
 
+# --- УПРАВЛЕНИЕ ИНВЕНТАРЕМ И РАЗБОРКОЙ ---
 @dp.message(F.text == "🎒 Инвентарь")
 async def menu_inventory(message: types.Message):
     await show_inventory(str(message.from_user.id), message)
@@ -725,6 +738,10 @@ async def show_inventory(user_id, message_or_callback):
     if not p: return
     text = f"🎒 <b>Инвентарь</b> (Энерг. пыль: {p.get('dust', 0)} ✨)\n\n🛡 <b>Экипировано:</b>\n"
     kb_buttons = []
+    
+    # Кнопка массовой утилизации грейдов добавляется на самый верх панели
+    kb_buttons.append([InlineKeyboardButton(text="♻️ РАЗОБРАТЬ ПО ГРЕЙДАМ", callback_data="menu_batch_scrap")])
+    
     for slot in ["weapon", "armor", "jewelry"]:
         eq = p["equipped"].get(slot)
         if eq: 
@@ -749,6 +766,63 @@ async def show_inventory(user_id, message_or_callback):
         await message_or_callback.answer(text, reply_markup=kb, parse_mode="HTML")
     else:
         await message_or_callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+
+@dp.callback_query(F.data == "view_inventory")
+async def cb_view_inventory(callback: types.CallbackQuery):
+    await show_inventory(str(callback.from_user.id), callback)
+    await callback.answer()
+
+# Подменю массовой утилизации предметов
+@dp.callback_query(F.data == "menu_batch_scrap")
+async def cb_menu_batch_scrap(callback: types.CallbackQuery):
+    builder = InlineKeyboardBuilder()
+    
+    # Генерируем кнопки для всех доступных цветов/грейдов
+    for r_key, r_info in RARITIES.items():
+        builder.row(InlineKeyboardButton(text=f"Разобрать всё {r_info['name']}", callback_data=f"scrap_all:{r_key}"))
+        
+    builder.row(InlineKeyboardButton(text="⬅️ Назад в инвентарь", callback_data="view_inventory"))
+    
+    await callback.message.edit_text(
+        "♻️ <b>Массовая разборка снаряжения</b>\n\nВыбери грейд предметов, которые ты хочешь полностью уничтожить и перевести в энергетическую пыль:",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+# Логика выполнения массовой разборки
+@dp.callback_query(F.data.startswith("scrap_all:"))
+async def cb_scrap_all_rarity(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    p = user_data.get(user_id)
+    if not p: return
+    rarity_key = callback.data.split(":")[1]
+    
+    if rarity_key not in RARITIES:
+        await callback.answer("Ошибка грейда!", show_alert=True)
+        return
+        
+    initial_count = len(p["inventory"])
+    kept_items = []
+    gained_dust = 0
+    
+    for item in p["inventory"]:
+        if item["rarity"] == rarity_key:
+            gained_dust += RARITIES[rarity_key]["dust"]
+        else:
+            kept_items.append(item)
+            
+    scrapped_count = initial_count - len(kept_items)
+    if scrapped_count == 0:
+        await callback.answer(f"У тебя в инвентаре нет предметов качества {RARITIES[rarity_key]['name']}!", show_alert=True)
+        return
+        
+    p["inventory"] = kept_items
+    p["dust"] = p.get("dust", 0) + gained_dust
+    await save_game()
+    
+    await callback.answer(f"Уничтожено предметов: {scrapped_count} шт.\nПолучено пыли: +{gained_dust} ✨", show_alert=True)
+    await show_inventory(user_id, callback)
 
 @dp.callback_query(F.data == "back_nav")
 async def callback_back_nav(callback: types.CallbackQuery):
@@ -921,7 +995,8 @@ async def auto_hunt_task():
                             if is_boss:
                                 b_roll = random.uniform(0, 100)
                                 new_item = create_item("Epic" if b_roll < 10 else "Rare" if b_roll < 45 else "Common")
-                            else: new_item = create_item("Common")
+                            else: 
+                                new_item = create_item("Uncommon" if random.random() < 0.25 else "Common")
                             if p["auto_scrap"].get(new_item["rarity"]):
                                 p["dust"] = p.get("dust", 0) + RARITIES[new_item["rarity"]]["dust"]
                             elif len(p["inventory"]) < 30: p["inventory"].append(new_item)
