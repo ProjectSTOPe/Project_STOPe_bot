@@ -2,12 +2,13 @@ import asyncio
 import json
 import os
 import random
+import time
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from aiohttp import web
 
-BOT_TOKEN = "8824282617:AAFl4gMea_Ocy9tz57E4S4Fmw9lzQckldEQ"
+BOT_TOKEN = "8824282617:AAEnxCEKgsC-jAE4Edw5IlBJn-b93A2fVX4"
 SAVE_FILE = "game_save.json"
 
 bot = Bot(token=BOT_TOKEN)
@@ -33,17 +34,16 @@ RARITIES = {
     "Mythic": {"name": "🔴 Мифический", "dust": 100, "mult": 15, "chance": 0.5}
 }
 
-ITEM_NAMES = {
-    "weapon": ["Клинок Клятвы", "Посох Послушника", "Лук Ветров", "Убийца Драконов", "Громобой", 
-               "Теневой Кинжал", "Молот Рока", "Коса Жнеца", "Рапира Иллюзий", "Алебарда Стража", 
-               "Жезл Пустоты", "Пылающий Меч"],
-    "armor": ["Мантия Мудреца", "Кожаный Жилет", "Тяжелый Доспех", "Латный Нагрудник", 
-              "Одеяние Теней", "Доспех Дракона", "Кольчуга Света", "Плащ Иллюзиониста", 
-              "Кираса Титана", "Ритуальная Роба", "Броня Инь-Янь"],
-    "jewelry": ["Кольцо Всевластия", "Амулет Крови", "Ожерелье Света", "Серьга Удачи", 
-                "Перстень Монаха", "Кулон Звездопада", "Талисман Бури", "Браслет Жизни", 
-                "Кольцо Затмения", "Амулет Дракона", "Печать Демона"]
+WEAPONS = {
+    "Маг": ["Посох Послушника", "Жезл Пустоты", "Магический Гримуар", "Коса Жнеца"],
+    "Лучник": ["Лук Ветров", "Короткий Лук", "Арбалет Стража", "Эльфийский Лук"],
+    "Танк": ["Клинок Клятвы", "Убийца Драконов", "Молот Рока", "Алебарда Ополчения"]
 }
+
+ARMORS = ["Мантия Мудреца", "Кожаный Жилет", "Тяжелый Доспех", "Одеяние Теней", "Доспех Дракона", "Броня Инь-Янь"]
+JEWELRY = ["Кольцо Всевластия", "Амулет Крови", "Ожерелье Света", "Серьга Удачи", "Талисман Бури", "Печать Демона"]
+
+UPGRADE_CHANCES = {0: 100, 1: 100, 2: 100, 3: 70, 4: 60, 5: 50, 6: 40, 7: 30, 8: 20, 9: 15, 10: 10, 11: 5}
 
 # --- ПОДГРУЗКА ЭФФЕКТИВНЫХ ХАРАКТЕРИСТИК ---
 def get_total_stats(p):
@@ -97,7 +97,7 @@ def add_xp(user_id, amount):
             
         stats = get_total_stats(p)
         p["hp"] = stats["total_max_hp"]
-        lvl_up_msg += f"\n🎉 **УРОВЕНЬ ПОВЫШЕН ({p['level']})!** ОЗ восстановлены."
+        lvl_up_msg += f"\n🎉 УРОВЕНЬ ПОВЫШЕН ({p['level']})! ОЗ восстановлены."
         
         if p["level"] >= 999:
             p["level"] = 999; p["xp"] = 0
@@ -109,7 +109,16 @@ def add_xp(user_id, amount):
 # --- ГЕНЕРАЦИЯ ПРЕДМЕТОВ ---
 def create_item(rarity_key):
     slot = random.choice(["weapon", "armor", "jewelry"])
-    name = f"{RARITIES[rarity_key]['name']} {random.choice(ITEM_NAMES[slot])}"
+    req_class = None
+    
+    if slot == "weapon":
+        req_class = random.choice(["Маг", "Лучник", "Танк"])
+        name = f"{RARITIES[rarity_key]['name']} {random.choice(WEAPONS[req_class])}"
+    elif slot == "armor":
+        name = f"{RARITIES[rarity_key]['name']} {random.choice(ARMORS)}"
+    else:
+        name = f"{RARITIES[rarity_key]['name']} {random.choice(JEWELRY)}"
+        
     mult = RARITIES[rarity_key]["mult"]
     
     stats = {"hp": 0, "atk": 0, "def": 0}
@@ -126,7 +135,7 @@ def create_item(rarity_key):
         stats["hp"] = random.randint(10, 20) * mult
         stats["def"] = random.randint(1, 4) * mult
         
-    return {"name": name, "slot": slot, "rarity": rarity_key, "stats": stats, "upgrade": 0}
+    return {"name": name, "slot": slot, "rarity": rarity_key, "stats": stats, "upgrade": 0, "req_class": req_class}
 
 def perform_gacha_pull(p):
     p["pity_epic"] = p.get("pity_epic", 0) + 1
@@ -170,7 +179,8 @@ def get_nav_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔼", callback_data="move_up")],
         [InlineKeyboardButton(text="◀️", callback_data="move_left"), InlineKeyboardButton(text="▶️", callback_data="move_right")],
-        [InlineKeyboardButton(text="🔽", callback_data="move_down")]
+        [InlineKeyboardButton(text="🔽", callback_data="move_down")],
+        [InlineKeyboardButton(text="🤖 Автоохота (1ч - 999 💎)", callback_data="auto_hunt")]
     ])
 
 def get_class_kb():
@@ -188,8 +198,8 @@ def get_combat_kb(cost_heal=50):
 
 def get_gacha_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎲 Призыв ×1 (50 💎)", callback_data="gacha_1")],
-        [InlineKeyboardButton(text="🎲 Призыв ×10 (450 💎)", callback_data="gacha_10")],
+        [InlineKeyboardButton(text="🎲 Призыв ×1 (100 💎)", callback_data="gacha_1")],
+        [InlineKeyboardButton(text="🎲 Призыв ×11 (1900 💎)", callback_data="gacha_11")],
         [InlineKeyboardButton(text="↩️ Назад", callback_data="back_nav")]
     ])
 
@@ -203,7 +213,7 @@ async def cmd_start(message: types.Message):
             "gold": 5000, "crystals": 10000, "dust": 0, "hp": 50, "max_hp": 50,
             "strength": 5, "agility": 5, "intelligence": 5, "defense": 2,
             "x": 10, "y": 10, "enemy_hp": 0, "enemy_max": 0, "enemy_type": "normal",
-            "enemy_atk_mult": 1, "pity_epic": 0, "pity_leg": 0,
+            "enemy_atk_mult": 1, "pity_epic": 0, "pity_leg": 0, "auto_hunt_end": 0,
             "inventory": [], "equipped": {"weapon": None, "armor": None, "jewelry": None}
         }
         save_game(user_data)
@@ -229,7 +239,7 @@ async def callback_class_select(callback: types.CallbackQuery):
     p["hp"] = p["max_hp"]
     save_game(user_data)
     await callback.message.delete()
-    await bot.send_message(callback.from_user.id, f"⚔️ Вы выбрали класс: **{selected_class}**!", reply_markup=get_bottom_kb())
+    await bot.send_message(callback.from_user.id, f"⚔️ Вы выбрали класс: {selected_class}!", reply_markup=get_bottom_kb())
     await bot.send_message(callback.from_user.id, "🗺 Панель навигации:", reply_markup=get_nav_kb())
     await callback.answer()
 
@@ -251,7 +261,7 @@ async def menu_gacha(message: types.Message):
     if not p: return
     
     text = (
-        f"🎰 **Призыв**\n\n"
+        f"🎰 Призыв\n\n"
         f"💎 Кристаллы: {p['crystals']}\n\n"
         f"Шансы:\n🔴 Мифический: 0.5%\n🟡 Легендарный: 2.5%\n"
         f"🟣 Эпический: 12%\n🔵 Редкий: 25%\n⬜ Обычный: ~60%"
@@ -265,7 +275,7 @@ async def callback_do_gacha(callback: types.CallbackQuery):
     if not p: return
     
     amount = int(callback.data.split("_")[1])
-    cost = 50 if amount == 1 else 450
+    cost = 100 if amount == 1 else 1900
     
     if p["crystals"] < cost:
         await callback.answer("❌ Недостаточно кристаллов!", show_alert=True)
@@ -284,8 +294,8 @@ async def callback_do_gacha(callback: types.CallbackQuery):
         results.append(item["name"])
         
     save_game(user_data)
-    await callback.message.answer(f"✨ **Результат призыва:**\n" + "\n".join(results))
-    await callback.message.edit_text(f"🎰 **Призыв**\n💎 Кристаллы: {p['crystals']}", reply_markup=get_gacha_kb())
+    await callback.message.answer(f"✨ Результат призыва:\n" + "\n".join(results))
+    await callback.message.edit_text(f"🎰 Призыв\n💎 Кристаллы: {p['crystals']}", reply_markup=get_gacha_kb())
     await callback.answer()
 
 @dp.message(F.text == "👤 Герой")
@@ -294,13 +304,18 @@ async def menu_hero(message: types.Message):
     if not p: return
     stats = get_total_stats(p)
     
+    status = "Свободен"
+    if p.get("auto_hunt_end", 0) > time.time():
+        status = f"Автоохота (осталось {int((p['auto_hunt_end'] - time.time()) / 60)} мин.)"
+
     text = (
         f"👤 {p['name']} | 🎖 {p['class']} ({p['level']} ур.)\n"
+        f"Статус: {status}\n"
         f"Прогресс: {p['xp']}/{p['level']*50} XP\n\n"
-        f"**Статы:**\n"
+        f"Статы:\n"
         f"⚔️ Атака: {stats['total_atk']} | 🛡 Защита: {stats['total_def']}\n"
         f"❤️ HP: {p['hp']}/{stats['total_max_hp']}\n\n"
-        f"**Ресурсы:**\n💰 Золото: {p['gold']} | 💎 Кристаллы: {p['crystals']}\n✨ Пыль: {p.get('dust', 0)}"
+        f"Ресурсы:\n💰 Золото: {p['gold']} | 💎 Кристаллы: {p['crystals']}\n✨ Пыль: {p.get('dust', 0)}"
     )
     await message.answer(text)
 
@@ -314,27 +329,31 @@ async def show_inventory(user_id, message_or_callback):
     p = user_data.get(user_id)
     if not p: return
     
-    text = f"🎒 **Инвентарь** (Пыль: {p.get('dust', 0)})\n\n🛡 **Надето:**\n"
+    text = f"🎒 Инвентарь (Пыль: {p.get('dust', 0)})\n\n🛡 Надето:\n"
+    kb_buttons = []
+    
     for slot in ["weapon", "armor", "jewelry"]:
         eq = p["equipped"].get(slot)
         if eq: 
             text += f"• {slot.capitalize()}: {eq['name']} (+{eq['upgrade']})\n  └ {format_item_stats(eq)}\n"
+            kb_buttons.append([InlineKeyboardButton(text=f"🔺 Точить Надетый {slot.capitalize()}", callback_data=f"upg_eq_{slot}")])
         else: text += f"• {slot.capitalize()}: <Пусто>\n"
         
-    text += "\n📦 **В сумке:**\n"
-    kb = None
+    text += "\n📦 В сумке:\n"
+    
     if not p.get("inventory"):
         text += "_Пусто._"
     else:
-        kb_buttons = []
         for idx, item in enumerate(p["inventory"][:6]):
-            text += f"{idx+1}. {item['name']} (+{item['upgrade']})\n    {format_item_stats(item)}\n"
+            req_cls = f" ({item['req_class']})" if item.get("req_class") else ""
+            text += f"{idx+1}. {item['name']}{req_cls} (+{item['upgrade']})\n    {format_item_stats(item)}\n"
             kb_buttons.append([
                 InlineKeyboardButton(text=f"👕 Надеть {idx+1}", callback_data=f"inv_equip_{idx}"),
+                InlineKeyboardButton(text=f"🔺 Точить {idx+1}", callback_data=f"upg_inv_{idx}"),
                 InlineKeyboardButton(text=f"♻️ В пыль {idx+1}", callback_data=f"inv_scrap_{idx}")
             ])
-        kb_buttons.append([InlineKeyboardButton(text="🔺 Точить Оружие", callback_data="upg_weapon")])
-        kb = InlineKeyboardMarkup(inline_keyboard=kb_buttons)
+            
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_buttons) if kb_buttons else None
         
     if isinstance(message_or_callback, types.Message):
         await message_or_callback.answer(text, reply_markup=kb)
@@ -346,6 +365,26 @@ async def callback_back_nav(callback: types.CallbackQuery):
     await callback.message.edit_text("🗺 Выберите направление:", reply_markup=get_nav_kb())
     await callback.answer()
 
+@dp.callback_query(F.data == "auto_hunt")
+async def callback_auto_hunt(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    p = user_data.get(user_id)
+    if not p: return
+    
+    if p["crystals"] < 999:
+        await callback.answer("❌ Недостаточно кристаллов (нужно 999)!", show_alert=True)
+        return
+        
+    p["crystals"] -= 999
+    now = time.time()
+    if p.get("auto_hunt_end", 0) < now:
+        p["auto_hunt_end"] = now + 3600
+    else:
+        p["auto_hunt_end"] += 3600
+        
+    save_game(user_data)
+    await callback.answer("🤖 Автоохота активирована на 1 час! Бот будет фармить в фоне.", show_alert=True)
+
 # --- ИНВЕНТАРЬ ОБРАБОТЧИКИ ---
 @dp.callback_query(F.data.startswith("inv_equip_"))
 async def callback_inv_equip(callback: types.CallbackQuery):
@@ -356,7 +395,14 @@ async def callback_inv_equip(callback: types.CallbackQuery):
     idx = int(callback.data.split("_")[2])
     if idx >= len(p["inventory"]): return
         
-    item = p["inventory"].pop(idx)
+    item = p["inventory"][idx]
+    
+    # Проверка класса для оружия
+    if item["slot"] == "weapon" and item.get("req_class") and item["req_class"] != p["class"]:
+        await callback.answer(f"❌ Это оружие могут носить только: {item['req_class']}!", show_alert=True)
+        return
+        
+    p["inventory"].pop(idx)
     slot = item["slot"]
     old_item = p["equipped"].get(slot)
     if old_item: p["inventory"].append(old_item)
@@ -367,7 +413,7 @@ async def callback_inv_equip(callback: types.CallbackQuery):
     
     save_game(user_data)
     await show_inventory(user_id, callback)
-    await callback.answer()
+    await callback.answer("Экипировано!")
 
 @dp.callback_query(F.data.startswith("inv_scrap_"))
 async def callback_inv_scrap(callback: types.CallbackQuery):
@@ -382,29 +428,62 @@ async def callback_inv_scrap(callback: types.CallbackQuery):
     p["dust"] = p.get("dust", 0) + RARITIES[item["rarity"]]["dust"]
     save_game(user_data)
     await show_inventory(user_id, callback)
-    await callback.answer()
+    await callback.answer("Переработано в пыль!")
 
-@dp.callback_query(F.data == "upg_weapon")
-async def callback_upgrade_weapon(callback: types.CallbackQuery):
+@dp.callback_query(F.data.startswith("upg_"))
+async def callback_upgrade_item(callback: types.CallbackQuery):
     user_id = str(callback.from_user.id)
     p = user_data.get(user_id)
     if not p: return
-        
-    wp = p["equipped"].get("weapon")
-    if not wp:
-        await callback.answer("Сначала наденьте оружие!", show_alert=True)
+    
+    action = callback.data[4:] # Получаем строку после "upg_" (например, "eq_weapon" или "inv_0")
+    item = None
+    is_equipped = False
+    idx = -1
+    
+    if action.startswith("eq_"):
+        slot = action[3:]
+        item = p["equipped"].get(slot)
+        is_equipped = True
+    elif action.startswith("inv_"):
+        idx = int(action[4:])
+        if idx < len(p["inventory"]):
+            item = p["inventory"][idx]
+            
+    if not item:
+        await callback.answer("Предмет не найден!", show_alert=True)
         return
         
-    cost = (wp.get("upgrade", 0) + 1) * 5
+    lvl = item.get("upgrade", 0)
+    if lvl >= 12:
+        await callback.answer("Максимальный уровень заточки (+12)!", show_alert=True)
+        return
+        
+    cost = (lvl + 1) * 5
     if p.get("dust", 0) < cost:
-        await callback.answer(f"Нужно {cost} пыли!", show_alert=True)
+        await callback.answer(f"Не хватает пыли! Нужно {cost} ✨", show_alert=True)
         return
         
     p["dust"] -= cost
-    wp["upgrade"] = wp.get("upgrade", 0) + 1
+    chance = UPGRADE_CHANCES.get(lvl, 5)
+    
+    success = random.randint(1, 100) <= chance
+    
+    if success:
+        item["upgrade"] = lvl + 1
+        await callback.answer(f"🌟 УСПЕХ! Предмет заточен на +{lvl + 1}", show_alert=True)
+    else:
+        if lvl >= 3:
+            if is_equipped:
+                p["equipped"][action[3:]] = None
+            else:
+                p["inventory"].pop(idx)
+            await callback.answer("💥 ПРОВАЛ! Предмет сломался при заточке.", show_alert=True)
+        else:
+            await callback.answer("Провал! Уровень заточки не изменился (безопасная заточка до +3).", show_alert=True)
+            
     save_game(user_data)
     await show_inventory(user_id, callback)
-    await callback.answer("Оружие улучшено!", show_alert=False)
 
 # --- ДВИЖЕНИЕ И БОЙ ---
 @dp.callback_query(F.data.startswith("move_"))
@@ -423,7 +502,6 @@ async def callback_move(callback: types.CallbackQuery):
     elif direction == "left": p["x"] -= 1
     elif direction == "right": p["x"] += 1
     
-    # Шансы: 0.5% Золотой | 3% Черный | 5% Красный | 10% Эпик | 30% Обычный
     rand_enc = random.random() * 100
     base_boss_hp = random.randint(150 + p["level"] * 15, 250 + p["level"] * 25)
 
@@ -431,22 +509,22 @@ async def callback_move(callback: types.CallbackQuery):
         p["enemy_type"] = "boss_golden"
         p["enemy_hp"] = base_boss_hp * 10
         p["enemy_atk_mult"] = 5
-        msg = f"🌟 **ЗОЛОТОЙ БОСС!**\nЗдоровье: {p['enemy_hp']} HP."
+        msg = f"🌟 ЗОЛОТОЙ БОСС!\nЗдоровье: {p['enemy_hp']} HP."
     elif rand_enc < 3.5:
         p["enemy_type"] = "boss_black"
         p["enemy_hp"] = base_boss_hp * 20
         p["enemy_atk_mult"] = 2
-        msg = f"🌑 **ЧЕРНЫЙ БОСС!**\nЗдоровье: {p['enemy_hp']} HP."
+        msg = f"🌑 ЧЕРНЫЙ БОСС!\nЗдоровье: {p['enemy_hp']} HP."
     elif rand_enc < 8.5:
         p["enemy_type"] = "boss_red"
         p["enemy_hp"] = base_boss_hp * 4
         p["enemy_atk_mult"] = 10
-        msg = f"🩸 **КРАСНЫЙ БОСС!**\nЗдоровье: {p['enemy_hp']} HP."
+        msg = f"🩸 КРАСНЫЙ БОСС!\nЗдоровье: {p['enemy_hp']} HP."
     elif rand_enc < 18.5:
         p["enemy_type"] = "boss"
         p["enemy_hp"] = base_boss_hp
         p["enemy_atk_mult"] = 2
-        msg = f"👑 **ЭПИЧЕСКИЙ БОСС!**\nЗдоровье: {p['enemy_hp']} HP."
+        msg = f"👑 ЭПИЧЕСКИЙ БОСС!\nЗдоровье: {p['enemy_hp']} HP."
     elif rand_enc < 48.5:
         p["enemy_type"] = "normal"
         p["enemy_hp"] = random.randint(30 + p["level"] * 6, 60 + p["level"] * 10)
@@ -483,7 +561,6 @@ async def callback_battle_hit(callback: types.CallbackQuery):
         p["enemy_hp"] = 0
         drop_item = None
         
-        # Логика дропа лута
         roll = random.uniform(0, 100)
         e_type = p.get("enemy_type", "normal")
         
@@ -508,7 +585,7 @@ async def callback_battle_hit(callback: types.CallbackQuery):
             else: drop_item = create_item("Common")
             xp_gain = 100 + (p["level"] * 15); gold_gain = 150
         else:
-            if roll < 15: drop_item = create_item("Common") # 15% с обычных мобов
+            if roll < 15: drop_item = create_item("Common")
             xp_gain = 25 + (p["level"] * 5); gold_gain = 30
 
         p["gold"] += gold_gain
@@ -518,7 +595,7 @@ async def callback_battle_hit(callback: types.CallbackQuery):
         reward_txt = f"⚔️ Враг повержен! ({player_dmg} урона)\n🔹 Опыт: +{xp_gain}\n💰 Золото: +{gold_gain}"
         if drop_item:
             p["inventory"].append(drop_item)
-            reward_txt += f"\n🎁 **Лут:** {drop_item['name']}"
+            reward_txt += f"\n🎁 Лут: {drop_item['name']}"
             
         await callback.message.edit_text(reward_txt + lvl_up_text, reply_markup=get_nav_kb())
     else:
@@ -529,9 +606,10 @@ async def callback_battle_hit(callback: types.CallbackQuery):
         
         if p["hp"] <= 0:
             p["hp"] = int(stats["total_max_hp"] * 0.5)
-            p["gold"] = max(0, p["gold"] - 50)
+            lost_xp = int(p["xp"] * 0.05)
+            p["xp"] = max(0, p["xp"] - lost_xp)
             p["enemy_hp"] = 0
-            await callback.message.edit_text("💀 Вы погибли! Очнулись в лагере. Штраф: -50 золота.", reply_markup=get_nav_kb())
+            await callback.message.edit_text(f"💀 Вы погибли! Очнулись в лагере. Штраф: -5% опыта (-{lost_xp} XP).", reply_markup=get_nav_kb())
         else:
             await callback.message.edit_text(f"⚔️ Урон: {player_dmg} | 👹 Враг: {monster_dmg}\n\n❤️ Здоровье: {p['hp']}/{stats['total_max_hp']}\n🩸 Враг: {p['enemy_hp']}/{p['enemy_max']}", reply_markup=get_combat_kb())
             
@@ -574,6 +652,42 @@ async def callback_battle_flee(callback: types.CallbackQuery):
     await callback.message.edit_text("💨 Вы сбежали.", reply_markup=get_nav_kb())
     await callback.answer()
 
+# --- ФОНОВАЯ ЗАДАЧА АВТООХОТЫ ---
+async def auto_hunt_task():
+    while True:
+        now = time.time()
+        for uid, p in list(user_data.items()):
+            if p.get("auto_hunt_end", 0) > now:
+                stats = get_total_stats(p)
+                
+                # Лечение если HP < 50%, пьем пока не станет > 90% (по 50 золота за банку)
+                if p["hp"] < stats["total_max_hp"] * 0.5:
+                    while p["hp"] < stats["total_max_hp"] * 0.9 and p["gold"] >= 50:
+                        p["hp"] = min(stats["total_max_hp"], p["hp"] + int(stats["total_max_hp"] * 0.4))
+                        p["gold"] -= 50
+
+                # Симуляция случайного боя с обычным монстром
+                if p["hp"] > 0:
+                    enemy_atk = max(1, 15 + p["level"] * 3 - stats["total_def"])
+                    p["hp"] -= enemy_atk
+                    
+                    if p["hp"] <= 0:
+                        p["hp"] = int(stats["total_max_hp"] * 0.5)
+                        lost_xp = int(p["xp"] * 0.05)
+                        p["xp"] = max(0, p["xp"] - lost_xp)
+                    else:
+                        xp_gain = 20 + p["level"] * 3
+                        gold_gain = 25
+                        add_xp(uid, xp_gain)
+                        p["gold"] += gold_gain
+                        
+                        # Небольшой шанс выбить лут на автобое (5%)
+                        if random.random() < 0.05 and len(p["inventory"]) < 30:
+                            p["inventory"].append(create_item("Common"))
+                            
+        save_game(user_data)
+        await asyncio.sleep(10) # Выполнять каждые 10 секунд
+
 # --- ФЕЙКОВЫЙ СЕРВЕР ДЛЯ RENDER ---
 async def handle_ping(request):
     return web.Response(text="Bot is running!")
@@ -581,6 +695,7 @@ async def handle_ping(request):
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     asyncio.create_task(dp.start_polling(bot))
+    asyncio.create_task(auto_hunt_task()) # Запуск задачи автоохоты
     
     app = web.Application()
     app.router.add_get('/', handle_ping)
