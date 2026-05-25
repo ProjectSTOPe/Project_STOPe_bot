@@ -228,7 +228,8 @@ async def cmd_start(message: types.Message):
             "gold": 5000, "crystals": 10000, "dust": 0, "hp": 50, "max_hp": 50,
             "strength": 5, "agility": 5, "intelligence": 5, "defense": 2,
             "x": 10, "y": 10, "enemy_hp": 0, "enemy_max": 0, "enemy_type": "normal",
-            "enemy_atk_mult": 1, "pity_epic": 0, "pity_leg": 0, "auto_hunt_end": 0,
+            "enemy_atk_mult": 1, "pity_epic": 0, "pity_leg": 0, 
+            "auto_hunt_end": 0, "auto_hunt_paused": False, "auto_hunt_remaining": 0,
             "inventory": [], "equipped": {"weapon": None, "armor": None, "jewelry": None},
             "auto_scrap": {"Common": False, "Rare": False, "Epic": False}
         }
@@ -238,38 +239,49 @@ async def cmd_start(message: types.Message):
         await message.answer("Главное меню активировано.", reply_markup=get_bottom_kb())
         await message.answer("🗺 Выберите направление:", reply_markup=get_nav_kb())
 
-@dp.callback_query(F.data.startswith("choose_"))
-async def callback_class_select(callback: types.CallbackQuery):
-    user_id = str(callback.from_user.id)
-    p = user_data.get(user_id)
-    if not p:
-        await callback.answer("⏳ Ошибка данных. Напишите /start", show_alert=True)
-        return
-        
-    selected_class = callback.data.split("_")[1]
-    p["class"] = selected_class
-    if selected_class == "Маг": p["intelligence"] = 15; p["max_hp"] = 60
-    elif selected_class == "Лучник": p["agility"] = 15; p["max_hp"] = 75
-    elif selected_class == "Танк": p["strength"] = 15; p["max_hp"] = 110; p["defense"] = 6
-        
-    p["hp"] = p["max_hp"]
-    save_game(user_data)
-    await callback.message.delete()
-    await bot.send_message(callback.from_user.id, f"⚔️ Вы выбрали класс: {selected_class}!", reply_markup=get_bottom_kb())
-    await bot.send_message(callback.from_user.id, "🗺 Панель навигации:", reply_markup=get_nav_kb())
-    await callback.answer()
-
-# --- ОБРАБОТКА КНОПОК МЕНЮ ---
+# --- РАЗДЕЛ ДОНАТА ---
 @dp.message(F.text == "💰 Донат")
 async def menu_donate(message: types.Message):
     text = (
-        "💎 <b>Покупка кристаллов</b>\n\n"
-        "Для покупки отправьте TON или USDT (в сети TON) на этот кошелёк:\n"
+        "💰 <b>Донат магазин S-Rank Online</b>\n\n"
+        "💵 <b>Тарифы на кристаллы:</b>\n"
+        "• 5 TON = 1000 💎\n"
+        "• 5 USDT (TON) = 1000 💎\n\n"
+        "📍 <b>Адрес кошелька для оплаты:</b>\n"
         "<code>UQD8EMc9SOt1V_YaItSSaLwUUEgkV293SKX5STO6aTbQTwn7</code>\n\n"
-        "<i>После перевода и проверки доната, вам будут зачислены кристаллы.</i>"
+        "<i>Инструкция: Отправьте монеты по адресу выше через встроенный Wallet или любой криптокошелек, а затем нажмите кнопку проверки ниже.</i>"
     )
-    await message.answer(text, parse_mode="HTML")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👛 Открыть Wallet Telegram", url="https://t.me/wallet")],
+        [InlineKeyboardButton(text="💎 Проверить оплату TON", callback_data="check_pay_TON")],
+        [InlineKeyboardButton(text="💎 Проверить оплату USDT", callback_data="check_pay_USDT")]
+    ])
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
+@dp.callback_query(F.data.startswith("check_pay_"))
+async def callback_check_donate(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    p = user_data.get(user_id)
+    if not p: return
+    
+    currency = callback.data.split("_")[2]
+    
+    # Симуляция проверки транзакции блокчейна. 
+    # В тестовом режиме начисляет 1000 кристаллов за клик.
+    p["crystals"] = p.get("crystals", 0) + 1000
+    save_game(user_data)
+    
+    await callback.answer(f"✅ Оплата в {currency} успешно подтверждена!", show_alert=True)
+    await callback.message.edit_text(
+        f"🎉 <b>Успешное пополнение!</b>\n\n"
+        f"Ваша транзакция в сети TON верифицирована.\n"
+        f"Начислено: +1000 💎\n"
+        f"Ваш текущий баланс: {p['crystals']} 💎",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ Назад", callback_data="back_nav")]]),
+        parse_mode="HTML"
+    )
+
+# --- ОБМЕН КРИСТАЛЛОВ С АВТОВОЗОБНОВЛЕНИЕМ ОХОТЫ ---
 @dp.message(F.text == "💱 Обмен")
 async def menu_exchange(message: types.Message):
     user_id = str(message.from_user.id)
@@ -296,14 +308,23 @@ async def callback_exchange(callback: types.CallbackQuery):
     p["crystals"] -= amount
     gold_gained = (amount // 100) * 1000
     p["gold"] = p.get("gold", 0) + gold_gained
-    save_game(user_data)
     
     text = f"✅ Успешный обмен!\nПолучено: {gold_gained} 💰\nОстаток кристаллов: {p['crystals']} 💎"
+    
+    # Автоматический перезапуск охоты, если она была заморожена из-за золота
+    if p.get("auto_hunt_paused", False) and p["gold"] >= 50:
+        p["auto_hunt_paused"] = False
+        p["auto_hunt_end"] = time.time() + p.get("auto_hunt_remaining", 0)
+        p["auto_hunt_remaining"] = 0
+        text += "\n\n▶️ <b>Автоохота автоматически продолжена! Времени оставалось в заморозке.</b>"
+        
+    save_game(user_data)
+    
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Еще 100 💎", callback_data="exchange_100"), 
          InlineKeyboardButton(text="🔄 Еще 1000 💎", callback_data="exchange_1000")]
     ])
-    await callback.message.edit_text(text, reply_markup=kb)
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     await callback.answer()
 
 @dp.message(F.text == "🗺 Навигация")
@@ -343,7 +364,7 @@ async def callback_do_gacha(callback: types.CallbackQuery):
         await callback.answer("❌ Недостаточно кристаллов!", show_alert=True)
         return
         
-    if len(p["inventory"]) + amount > 30: # Ограничение сумки
+    if len(p["inventory"]) + amount > 30:
         await callback.answer("🎒 Инвентарь переполнен! Освободите место.", show_alert=True)
         return
 
@@ -367,8 +388,10 @@ async def menu_hero(message: types.Message):
     stats = get_total_stats(p)
     
     status = "Свободен"
-    if p.get("auto_hunt_end", 0) > time.time():
-        status = f"Автоохота (осталось {int((p['auto_hunt_end'] - time.time()) / 60)} мин.)"
+    if p.get("auto_hunt_paused", False):
+        status = "Автоохота ⏸ (На паузе, нет золота)"
+    elif p.get("auto_hunt_end", 0) > time.time():
+        status = f"Автоохота ▶️ (осталось {int((p['auto_hunt_end'] - time.time()) / 60)} мин.)"
 
     text = (
         f"👤 {p['name']} | 🎖 {p['class']} ({p['level']} ур.)\n"
@@ -428,6 +451,7 @@ async def callback_back_nav(callback: types.CallbackQuery):
     await callback.answer()
 
 # --- АВТООХОТА: МЕНЮ И ЗАПУСК ---
+# --- АВТООХОТА: МЕНЮ И ЗАПУСК ---
 @dp.callback_query(F.data == "auto_hunt_menu")
 async def callback_auto_hunt_menu(callback: types.CallbackQuery):
     user_id = str(callback.from_user.id)
@@ -458,6 +482,9 @@ async def start_auto_hunt(callback: types.CallbackQuery):
         return
         
     p["crystals"] -= 999
+    p["auto_hunt_paused"] = False
+    p["auto_hunt_remaining"] = 0
+    
     now = time.time()
     if p.get("auto_hunt_end", 0) < now:
         p["auto_hunt_end"] = now + 3600
@@ -479,8 +506,6 @@ async def callback_inv_equip(callback: types.CallbackQuery):
     if idx >= len(p["inventory"]): return
         
     item = p["inventory"][idx]
-    
-    # Проверка класса для оружия
     if item["slot"] == "weapon" and item.get("req_class") and item["req_class"] != p["class"]:
         await callback.answer(f"❌ Это оружие могут носить только: {item['req_class']}!", show_alert=True)
         return
@@ -519,7 +544,7 @@ async def callback_upgrade_item(callback: types.CallbackQuery):
     p = user_data.get(user_id)
     if not p: return
     
-    action = callback.data[4:] # Получаем строку после "upg_" (например, "eq_weapon" или "inv_0")
+    action = callback.data[4:]
     item = None
     is_equipped = False
     idx = -1
@@ -549,7 +574,6 @@ async def callback_upgrade_item(callback: types.CallbackQuery):
         
     p["dust"] -= cost
     chance = UPGRADE_CHANCES.get(lvl, 5)
-    
     success = random.randint(1, 100) <= chance
     
     if success:
@@ -568,7 +592,7 @@ async def callback_upgrade_item(callback: types.CallbackQuery):
     save_game(user_data)
     await show_inventory(user_id, callback)
 
-# --- ДВИЖЕНИЕ И БОЙ ---
+# --- ДВИЖЕНИЕ И РУЧНОЙ БОЙ ---
 @dp.callback_query(F.data.startswith("move_"))
 async def callback_move(callback: types.CallbackQuery):
     user_id = str(callback.from_user.id)
@@ -604,10 +628,10 @@ async def callback_move(callback: types.CallbackQuery):
         p["enemy_atk_mult"] = 10
         msg = f"🩸 КРАСНЫЙ БОСС!\nЗдоровье: {p['enemy_hp']} HP."
     elif rand_enc < 18.5:
-        p["enemy_type"] = "boss"
+        p["enemy_type"] = "boss_normal" # ОБЫЧНЫЙ БОСС
         p["enemy_hp"] = base_boss_hp
         p["enemy_atk_mult"] = 2
-        msg = f"👑 ЭПИЧЕСКИЙ БОСС!\nЗдоровье: {p['enemy_hp']} HP."
+        msg = f"👑 ОБЫЧНЫЙ БОСС!\nЗдоровье: {p['enemy_hp']} HP."
     elif rand_enc < 48.5:
         p["enemy_type"] = "normal"
         p["enemy_hp"] = random.randint(30 + p["level"] * 6, 60 + p["level"] * 10)
@@ -643,7 +667,6 @@ async def callback_battle_hit(callback: types.CallbackQuery):
     if p["enemy_hp"] <= 0:
         p["enemy_hp"] = 0
         drop_item = None
-        
         roll = random.uniform(0, 100)
         e_type = p.get("enemy_type", "normal")
         
@@ -662,7 +685,7 @@ async def callback_battle_hit(callback: types.CallbackQuery):
             elif roll < 5: drop_item = create_item("Epic")
             else: drop_item = create_item("Rare")
             xp_gain = 250 + (p["level"] * 25); gold_gain = 400
-        elif e_type == "boss":
+        elif e_type == "boss_normal": # Награды за Обычного Босса
             if roll < 5: drop_item = create_item("Epic")
             elif roll < 35: drop_item = create_item("Rare")
             else: drop_item = create_item("Common")
@@ -735,37 +758,57 @@ async def callback_battle_flee(callback: types.CallbackQuery):
     await callback.message.edit_text("💨 Вы сбежали.", reply_markup=get_nav_kb())
     await callback.answer()
 
-# --- ФОНОВАЯ ЗАДАЧА АВТООХОТЫ ---
-# --- ФОНОВАЯ ЗАДАЧА АВТООХОТЫ ---
+# --- ФОНОВАЯ ЗАДАЧА АВТООХОТЫ (С ЗАМОРОЗКОЙ ВРЕМЕНИ И БОССАМИ) ---
 async def auto_hunt_task():
     while True:
         now = time.time()
         for uid, p in list(user_data.items()):
-            if p.get("auto_hunt_end", 0) > now:
+            # Работает только если есть время и игра не на паузе
+            if p.get("auto_hunt_end", 0) > now and not p.get("auto_hunt_paused", False):
                 stats = get_total_stats(p)
                 
-                # Лечение если HP < 50%, пьем пока не станет > 90% (по 50 золота за банку)
+                # Потребность в лечении (автоподхил)
                 if p["hp"] < stats["total_max_hp"] * 0.5:
                     while p["hp"] < stats["total_max_hp"] * 0.9:
                         if p["gold"] >= 50:
                             p["hp"] = min(stats["total_max_hp"], p["hp"] + int(stats["total_max_hp"] * 0.4))
                             p["gold"] -= 50
                         else:
-                            # ОСТАНАВЛИВАЕМ АВТООХОТУ ЕСЛИ НЕТ ЗОЛОТА
+                            # ЗАМОРОЗКА ВРЕМЕНИ ПРИ НЕХВАТКЕ ЗОЛОТА
+                            remaining_time = p["auto_hunt_end"] - now
+                            p["auto_hunt_remaining"] = max(0, remaining_time)
                             p["auto_hunt_end"] = 0
+                            p["auto_hunt_paused"] = True
+                            
                             try:
-                                asyncio.create_task(bot.send_message(uid, "🛑 <b>Автоохота остановлена: закончилось золото на зелья!</b>", parse_mode="HTML"))
+                                await bot.send_message(
+                                    uid, 
+                                    "⏸ <b>Автоохота приостановлена: закончилось золото на зелья!</b>\n\n"
+                                    "⏳ Оставшееся время автобоя успешно заморожено. "
+                                    "Обменяйте кристаллы на золото в меню 💱 Обмен, чтобы бот автоматически продолжил фарм.", 
+                                    parse_mode="HTML"
+                                )
                             except:
                                 pass
                             break
                             
-                # Если автоохота только что остановилась, пропускаем бой
-                if p.get("auto_hunt_end", 0) <= now:
+                # Если ушли в паузу на этом тике, симуляцию боя пропускаем
+                if p.get("auto_hunt_paused", False):
                     continue
 
-                # Симуляция случайного боя с обычным монстром
+                # Симуляция случайных встреч на автоохоте (включая Обычного Босса)
                 if p["hp"] > 0:
-                    enemy_atk = max(1, 15 + p["level"] * 3 - stats["total_def"])
+                    roll = random.random() * 100
+                    
+                    if roll < 2.0: # 2% шанс встретить обычного босса на автоохоте
+                        enemy_atk = max(5, (25 + p["level"] * 6) - stats["total_def"])
+                        xp_gain = 80 + p["level"] * 10
+                        gold_gain = 100
+                    else: # Рядовой монстр
+                        enemy_atk = max(1, (15 + p["level"] * 3) - stats["total_def"])
+                        xp_gain = 20 + p["level"] * 3
+                        gold_gain = 25
+                        
                     p["hp"] -= enemy_atk
                     
                     if p["hp"] <= 0:
@@ -773,24 +816,21 @@ async def auto_hunt_task():
                         lost_xp = int(p["xp"] * 0.05)
                         p["xp"] = max(0, p["xp"] - lost_xp)
                     else:
-                        xp_gain = 20 + p["level"] * 3
-                        gold_gain = 25
                         add_xp(uid, xp_gain)
                         p["gold"] += gold_gain
                         
-                        # Небольшой шанс выбить лут на автобое (5%)
+                        # Шанс выпадения лута
                         if random.random() < 0.05:
                             new_item = create_item("Common")
                             scrap_settings = p.get("auto_scrap", {})
                             
-                            # Авторазбор по настройкам игрока
                             if scrap_settings.get(new_item["rarity"]):
                                 p["dust"] = p.get("dust", 0) + RARITIES[new_item["rarity"]]["dust"]
                             elif len(p["inventory"]) < 30:
                                 p["inventory"].append(new_item)
                             
         save_game(user_data)
-        await asyncio.sleep(10) # Выполнять каждые 10 секунд
+        await asyncio.sleep(10) # Проверка каждые 10 секунд
 
 # --- ФЕЙКОВЫЙ СЕРВЕР ДЛЯ RENDER ---
 async def handle_ping(request):
@@ -799,7 +839,7 @@ async def handle_ping(request):
 async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     asyncio.create_task(dp.start_polling(bot))
-    asyncio.create_task(auto_hunt_task()) # Запуск задачи автоохоты
+    asyncio.create_task(auto_hunt_task())
     
     app = web.Application()
     app.router.add_get('/', handle_ping)
