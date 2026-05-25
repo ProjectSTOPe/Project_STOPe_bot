@@ -11,7 +11,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiohttp import web
 
 # --- КОНФИГУРАЦИЯ БОТА И ОПЛАТЫ ---
-BOT_TOKEN = "8824282617:AAEd4ycUGPfdktkJR_Uks2sYlv7KgleJudE"
+BOT_TOKEN = "8824282617:AAFl4gMea_Ocy9tz57E4S4Fmw9lzQckldEQ"
 PAYMENT_PROVIDER_TOKEN = "" # Оставь пустым для приема Telegram Stars (XTR)
 
 # Умное определение пути сохранения для Render Persistent Disk
@@ -84,7 +84,6 @@ def load_game():
 async def save_game():
     async with data_lock:
         try:
-            # На случай, если папка /data еще не создана операционной системой
             dir_name = os.path.dirname(SAVE_FILE)
             if dir_name and not os.path.exists(dir_name):
                 os.makedirs(dir_name, exist_ok=True)
@@ -95,7 +94,6 @@ async def save_game():
             print(f"Ошибка записи в БД: {e}")
 
 # --- БАЗЫ ДАННЫХ И НАСТРОЙКИ ПРЕДМЕТОВ ---
-# Шансы перебалансированы под 100% с учетом Зеленого грейда
 RARITIES = {
     "Common": {"name": "⬜ Серое (Обычный)", "dust": 1, "mult": 1, "chance": 45.0},
     "Uncommon": {"name": "🟢 Зелёное (Необычный)", "dust": 2, "mult": 1.5, "chance": 25.0},
@@ -202,20 +200,34 @@ def perform_gacha_pull(p):
     else:
         roll = random.uniform(0, 100)
         if roll <= 0.5: rarity_key = "Mythic"
-        elif roll <= 4.0: rarity_key = "Legendary" # 3.5%
-        elif roll <= 15.0: rarity_key = "Epic"       # 11%
-        elif roll <= 30.0: rarity_key = "Rare"       # 15%
-        elif roll <= 55.0: rarity_key = "Uncommon"   # 25%
-        else: rarity_key = "Common"                  # 45%
+        elif roll <= 4.0: rarity_key = "Legendary"
+        elif roll <= 15.0: rarity_key = "Epic"
+        elif roll <= 30.0: rarity_key = "Rare"
+        elif roll <= 55.0: rarity_key = "Uncommon"
+        else: rarity_key = "Common"                  
             
     if rarity_key in ["Legendary", "Mythic"]: p["pity_leg"] = 0; p["pity_epic"] = 0
     elif rarity_key == "Epic": p["pity_epic"] = 0
     return create_item(rarity_key)
 
+# Чистая и красивая фильтрация характеристик без визуальной каши
 def format_item_stats(item):
     s = item["stats"]
     upg = item.get("upgrade", 0)
-    return f"🗡 Атк: {s.get('atk',0)+(upg*2)} | 🛡 Защ: {s.get('def',0)+upg} | ❤️ HP: {s.get('hp',0)+(upg*5)}"
+    
+    atk_val = s.get('atk', 0) + (upg * 2)
+    def_val = s.get('def', 0) + upg
+    hp_val = s.get('hp', 0) + (upg * 5)
+    
+    parts = []
+    if atk_val > 0:
+        parts.append(f"⚔️ Атк: <b>{atk_val}</b>")
+    if def_val > 0:
+        parts.append(f"🛡️ Защ: <b>{def_val}</b>")
+    if hp_val > 0:
+        parts.append(f"❤️ HP: <b>{hp_val}</b>")
+        
+    return "  |  ".join(parts) if parts else "Нет характеристик"
 
 # --- МЕНЮ И КЛАВИАТУРЫ ---
 def get_bottom_kb():
@@ -696,12 +708,19 @@ async def callback_battle_flee(callback: types.CallbackQuery):
     await save_game()
     await callback.message.edit_text("💨 Вы успешно сбежали из боя.", reply_markup=get_nav_kb())
 
+# --- МЕНЮ ПРИЗЫВА (Добавлены кружки крутости грейдов) ---
 @dp.message(F.text == "🔮 Призыв")
 async def menu_gacha(message: types.Message):
     user_id = str(message.from_user.id)
     p = user_data.get(user_id)
     if not p: return
-    text = f"🎰 <b>Призыв S-Rank Оружия и Брони</b>\n\n💎 Баланс: {p['crystals']} кр.\nМифик: 0.5% | Легенда: 3.5% | Эпик: 11% | Синька: 15% | Зелень: 25% | Серое: 45%"
+    text = (
+        f"🎰 <b>Призыв S-Rank Оружия и Брони</b>\n\n"
+        f"💎 Баланс: {p['crystals']} кр.\n\n"
+        f"🔴 Мифик: 0.5% | 🟡 Легенда: 3.5%\n"
+        f"🟣 Эпик: 11% | 🔵 Синька: 15%\n"
+        f"🟢 Зелень: 25% | ⬜ Серое: 45%"
+    )
     await message.answer(text, reply_markup=get_gacha_kb(), parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("gacha_"))
@@ -728,7 +747,7 @@ async def callback_do_gacha(callback: types.CallbackQuery):
     await callback.message.answer(f"✨ <b>Результаты призыва:</b>\n" + "\n".join(results), parse_mode="HTML")
     await callback.message.edit_text(f"🎰 Призыв снаряжения\n💎 Кристаллы: {p['crystals']}", reply_markup=get_gacha_kb())
 
-# --- УПРАВЛЕНИЕ ИНВЕНТАРЕМ И РАЗБОРКОЙ ---
+# --- УПРАВЛЕНИЕ ИНВЕНТАРЕМ И ХАРАКТЕРИСТИКАМИ (Без визуальной каши) ---
 @dp.message(F.text == "🎒 Инвентарь")
 async def menu_inventory(message: types.Message):
     await show_inventory(str(message.from_user.id), message)
@@ -736,25 +755,32 @@ async def menu_inventory(message: types.Message):
 async def show_inventory(user_id, message_or_callback):
     p = user_data.get(user_id)
     if not p: return
-    text = f"🎒 <b>Инвентарь</b> (Энерг. пыль: {p.get('dust', 0)} ✨)\n\n🛡 <b>Экипировано:</b>\n"
+    text = f"🎒 <b>Инвентарь</b> (Энерг. пыль: {p.get('dust', 0)} ✨)\n\n"
+    text += "🛡 <b>Экипировано:</b>\n"
+    text += "━━━━━━━━━━━━━━━━━━━━\n"
     kb_buttons = []
     
-    # Кнопка массовой утилизации грейдов добавляется на самый верх панели
     kb_buttons.append([InlineKeyboardButton(text="♻️ РАЗОБРАТЬ ПО ГРЕЙДАМ", callback_data="menu_batch_scrap")])
     
+    slots = {"weapon": "⚔️ Оружие", "armor": "🛡️ Доспех", "jewelry": "📿 Бижутерия"}
     for slot in ["weapon", "armor", "jewelry"]:
         eq = p["equipped"].get(slot)
         if eq: 
-            text += f"• {slot.capitalize()}: {eq['name']} (+{eq['upgrade']})\n  └ {format_item_stats(eq)}\n"
-            kb_buttons.append([InlineKeyboardButton(text=f"🔺 Улучшить {slot.capitalize()}", callback_data=f"upg_eq_{slot}")])
-        else: text += f"• {slot.capitalize()}: &lt;Пусто&gt;\n"
+            text += f"• <b>{slots[slot]}</b>: {eq['name']} <b>[+{eq['upgrade']}]</b>\n"
+            text += f"   └ {format_item_stats(eq)}\n\n"
+            kb_buttons.append([InlineKeyboardButton(text=f"🔺 Улучшить {slots[slot]}", callback_data=f"upg_eq_{slot}")])
+        else: 
+            text += f"• <b>{slots[slot]}</b>: <i>Пусто</i>\n\n"
         
-    text += "\n📦 <b>В сумке:</b>\n"
-    if not p.get("inventory"): text += "<i>Пусто.</i>"
+    text += "📦 <b>В сумке (первые 6 предметов):</b>\n"
+    text += "━━━━━━━━━━━━━━━━━━━━\n"
+    if not p.get("inventory"): 
+        text += "<i>Сумка пуста.</i>\n"
     else:
         for idx, item in enumerate(p["inventory"][:6]):
-            req_cls = f" ({item['req_class']})" if item.get("req_class") else ""
-            text += f"{idx+1}. {item['name']}{req_cls} (+{item['upgrade']})\n    {format_item_stats(item)}\n"
+            req_cls = f" <code>[{item['req_class']}]</code>" if item.get("req_class") else ""
+            text += f"<b>{idx+1}.</b> {item['name']}{req_cls} <b>[+{item['upgrade']}]</b>\n"
+            text += f"   └ {format_item_stats(item)}\n\n"
             kb_buttons.append([
                 InlineKeyboardButton(text=f"👕 Надеть {idx+1}", callback_data=f"inv_equip_{idx}"),
                 InlineKeyboardButton(text=f"🔺 Точить {idx+1}", callback_data=f"upg_inv_{idx}"),
@@ -772,15 +798,11 @@ async def cb_view_inventory(callback: types.CallbackQuery):
     await show_inventory(str(callback.from_user.id), callback)
     await callback.answer()
 
-# Подменю массовой утилизации предметов
 @dp.callback_query(F.data == "menu_batch_scrap")
 async def cb_menu_batch_scrap(callback: types.CallbackQuery):
     builder = InlineKeyboardBuilder()
-    
-    # Генерируем кнопки для всех доступных цветов/грейдов
     for r_key, r_info in RARITIES.items():
         builder.row(InlineKeyboardButton(text=f"Разобрать всё {r_info['name']}", callback_data=f"scrap_all:{r_key}"))
-        
     builder.row(InlineKeyboardButton(text="⬅️ Назад в инвентарь", callback_data="view_inventory"))
     
     await callback.message.edit_text(
@@ -790,7 +812,6 @@ async def cb_menu_batch_scrap(callback: types.CallbackQuery):
     )
     await callback.answer()
 
-# Логика выполнения массовой разборки
 @dp.callback_query(F.data.startswith("scrap_all:"))
 async def cb_scrap_all_rarity(callback: types.CallbackQuery):
     user_id = str(callback.from_user.id)
