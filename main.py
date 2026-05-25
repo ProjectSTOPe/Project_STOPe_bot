@@ -172,7 +172,8 @@ def get_bottom_kb():
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text="🗺 Навигация")],
         [KeyboardButton(text="👤 Герой"), KeyboardButton(text="🎒 Инвентарь")],
-        [KeyboardButton(text="🔮 Призыв")]
+        [KeyboardButton(text="🔮 Призыв"), KeyboardButton(text="💱 Обмен")],
+        [KeyboardButton(text="💰 Донат")]
     ], resize_keyboard=True)
 
 def get_nav_kb():
@@ -180,7 +181,7 @@ def get_nav_kb():
         [InlineKeyboardButton(text="🔼", callback_data="move_up")],
         [InlineKeyboardButton(text="◀️", callback_data="move_left"), InlineKeyboardButton(text="▶️", callback_data="move_right")],
         [InlineKeyboardButton(text="🔽", callback_data="move_down")],
-        [InlineKeyboardButton(text="🤖 Автоохота (1ч - 999 💎)", callback_data="auto_hunt")]
+        [InlineKeyboardButton(text="🤖 Меню Автоохоты", callback_data="auto_hunt_menu")]
     ])
 
 def get_class_kb():
@@ -203,6 +204,20 @@ def get_gacha_kb():
         [InlineKeyboardButton(text="↩️ Назад", callback_data="back_nav")]
     ])
 
+def get_auto_hunt_kb(p):
+    scrap = p.get("auto_scrap", {})
+    c_state = "✅" if scrap.get("Common") else "❌"
+    r_state = "✅" if scrap.get("Rare") else "❌"
+    e_state = "✅" if scrap.get("Epic") else "❌"
+    
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"{c_state} Разбор Обычных", callback_data="toggle_scrap_Common")],
+        [InlineKeyboardButton(text=f"{r_state} Разбор Редких", callback_data="toggle_scrap_Rare")],
+        [InlineKeyboardButton(text=f"{e_state} Разбор Эпических", callback_data="toggle_scrap_Epic")],
+        [InlineKeyboardButton(text="▶️ Запустить (1ч - 999 💎)", callback_data="start_auto_hunt")],
+        [InlineKeyboardButton(text="↩️ Назад", callback_data="back_nav")]
+    ])
+
 # --- СТАРТ И КЛАССЫ ---
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -214,7 +229,8 @@ async def cmd_start(message: types.Message):
             "strength": 5, "agility": 5, "intelligence": 5, "defense": 2,
             "x": 10, "y": 10, "enemy_hp": 0, "enemy_max": 0, "enemy_type": "normal",
             "enemy_atk_mult": 1, "pity_epic": 0, "pity_leg": 0, "auto_hunt_end": 0,
-            "inventory": [], "equipped": {"weapon": None, "armor": None, "jewelry": None}
+            "inventory": [], "equipped": {"weapon": None, "armor": None, "jewelry": None},
+            "auto_scrap": {"Common": False, "Rare": False, "Epic": False}
         }
         save_game(user_data)
         await message.answer("Добро пожаловать в S-Rank Online!\nВыберите свой класс:", reply_markup=get_class_kb())
@@ -244,6 +260,52 @@ async def callback_class_select(callback: types.CallbackQuery):
     await callback.answer()
 
 # --- ОБРАБОТКА КНОПОК МЕНЮ ---
+@dp.message(F.text == "💰 Донат")
+async def menu_donate(message: types.Message):
+    text = (
+        "💎 <b>Покупка кристаллов</b>\n\n"
+        "Для покупки отправьте TON или USDT (в сети TON) на этот кошелёк:\n"
+        "<code>UQD8EMc9SOt1V_YaItSSaLwUUEgkV293SKX5STO6aTbQTwn7</code>\n\n"
+        "<i>После перевода и проверки доната, вам будут зачислены кристаллы.</i>"
+    )
+    await message.answer(text, parse_mode="HTML")
+
+@dp.message(F.text == "💱 Обмен")
+async def menu_exchange(message: types.Message):
+    user_id = str(message.from_user.id)
+    p = user_data.get(user_id)
+    if not p: return
+    text = f"💱 <b>Обменник</b>\n\nВаши кристаллы: {p.get('crystals', 0)} 💎\nКурс: 100 💎 = 1000 💰"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Обменять 100 💎", callback_data="exchange_100")],
+        [InlineKeyboardButton(text="🔄 Обменять 1000 💎", callback_data="exchange_1000")]
+    ])
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+@dp.callback_query(F.data.startswith("exchange_"))
+async def callback_exchange(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    p = user_data.get(user_id)
+    if not p: return
+    amount = int(callback.data.split("_")[1])
+    
+    if p.get("crystals", 0) < amount:
+        await callback.answer("❌ Недостаточно кристаллов!", show_alert=True)
+        return
+        
+    p["crystals"] -= amount
+    gold_gained = (amount // 100) * 1000
+    p["gold"] = p.get("gold", 0) + gold_gained
+    save_game(user_data)
+    
+    text = f"✅ Успешный обмен!\nПолучено: {gold_gained} 💰\nОстаток кристаллов: {p['crystals']} 💎"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Еще 100 💎", callback_data="exchange_100"), 
+         InlineKeyboardButton(text="🔄 Еще 1000 💎", callback_data="exchange_1000")]
+    ])
+    await callback.message.edit_text(text, reply_markup=kb)
+    await callback.answer()
+
 @dp.message(F.text == "🗺 Навигация")
 async def menu_nav(message: types.Message):
     user_id = str(message.from_user.id)
@@ -365,8 +427,28 @@ async def callback_back_nav(callback: types.CallbackQuery):
     await callback.message.edit_text("🗺 Выберите направление:", reply_markup=get_nav_kb())
     await callback.answer()
 
-@dp.callback_query(F.data == "auto_hunt")
-async def callback_auto_hunt(callback: types.CallbackQuery):
+# --- АВТООХОТА: МЕНЮ И ЗАПУСК ---
+@dp.callback_query(F.data == "auto_hunt_menu")
+async def callback_auto_hunt_menu(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    p = user_data.get(user_id)
+    if not p: return
+    if "auto_scrap" not in p:
+        p["auto_scrap"] = {"Common": False, "Rare": False, "Epic": False}
+    await callback.message.edit_text("🤖 <b>Меню Автоохоты</b>\nВыберите редкость вещей для авто-распыления:", reply_markup=get_auto_hunt_kb(p), parse_mode="HTML")
+
+@dp.callback_query(F.data.startswith("toggle_scrap_"))
+async def toggle_scrap(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    p = user_data.get(user_id)
+    rarity = callback.data.split("_")[2]
+    if "auto_scrap" not in p: p["auto_scrap"] = {"Common": False, "Rare": False, "Epic": False}
+    p["auto_scrap"][rarity] = not p["auto_scrap"].get(rarity, False)
+    save_game(user_data)
+    await callback.message.edit_reply_markup(reply_markup=get_auto_hunt_kb(p))
+
+@dp.callback_query(F.data == "start_auto_hunt")
+async def start_auto_hunt(callback: types.CallbackQuery):
     user_id = str(callback.from_user.id)
     p = user_data.get(user_id)
     if not p: return
@@ -384,6 +466,7 @@ async def callback_auto_hunt(callback: types.CallbackQuery):
         
     save_game(user_data)
     await callback.answer("🤖 Автоохота активирована на 1 час! Бот будет фармить в фоне.", show_alert=True)
+    await callback.message.edit_text("🗺 Панель перемещения:", reply_markup=get_nav_kb())
 
 # --- ИНВЕНТАРЬ ОБРАБОТЧИКИ ---
 @dp.callback_query(F.data.startswith("inv_equip_"))
@@ -653,6 +736,7 @@ async def callback_battle_flee(callback: types.CallbackQuery):
     await callback.answer()
 
 # --- ФОНОВАЯ ЗАДАЧА АВТООХОТЫ ---
+# --- ФОНОВАЯ ЗАДАЧА АВТООХОТЫ ---
 async def auto_hunt_task():
     while True:
         now = time.time()
@@ -662,9 +746,22 @@ async def auto_hunt_task():
                 
                 # Лечение если HP < 50%, пьем пока не станет > 90% (по 50 золота за банку)
                 if p["hp"] < stats["total_max_hp"] * 0.5:
-                    while p["hp"] < stats["total_max_hp"] * 0.9 and p["gold"] >= 50:
-                        p["hp"] = min(stats["total_max_hp"], p["hp"] + int(stats["total_max_hp"] * 0.4))
-                        p["gold"] -= 50
+                    while p["hp"] < stats["total_max_hp"] * 0.9:
+                        if p["gold"] >= 50:
+                            p["hp"] = min(stats["total_max_hp"], p["hp"] + int(stats["total_max_hp"] * 0.4))
+                            p["gold"] -= 50
+                        else:
+                            # ОСТАНАВЛИВАЕМ АВТООХОТУ ЕСЛИ НЕТ ЗОЛОТА
+                            p["auto_hunt_end"] = 0
+                            try:
+                                asyncio.create_task(bot.send_message(uid, "🛑 <b>Автоохота остановлена: закончилось золото на зелья!</b>", parse_mode="HTML"))
+                            except:
+                                pass
+                            break
+                            
+                # Если автоохота только что остановилась, пропускаем бой
+                if p.get("auto_hunt_end", 0) <= now:
+                    continue
 
                 # Симуляция случайного боя с обычным монстром
                 if p["hp"] > 0:
@@ -682,8 +779,15 @@ async def auto_hunt_task():
                         p["gold"] += gold_gain
                         
                         # Небольшой шанс выбить лут на автобое (5%)
-                        if random.random() < 0.05 and len(p["inventory"]) < 30:
-                            p["inventory"].append(create_item("Common"))
+                        if random.random() < 0.05:
+                            new_item = create_item("Common")
+                            scrap_settings = p.get("auto_scrap", {})
+                            
+                            # Авторазбор по настройкам игрока
+                            if scrap_settings.get(new_item["rarity"]):
+                                p["dust"] = p.get("dust", 0) + RARITIES[new_item["rarity"]]["dust"]
+                            elif len(p["inventory"]) < 30:
+                                p["inventory"].append(new_item)
                             
         save_game(user_data)
         await asyncio.sleep(10) # Выполнять каждые 10 секунд
